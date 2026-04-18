@@ -9,11 +9,23 @@
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 [![Downloads](https://img.shields.io/github/downloads/SherlockShemol/ykw-bridge/total)](https://github.com/SherlockShemol/ykw-bridge/releases/latest)
 
-<a href="https://trendshift.io/repositories/15372" target="_blank"><img src="https://trendshift.io/api/badge/repositories/15372" alt="SherlockShemol%2Fykw-bridge | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
-
 [English](README.md) | [中文](README_ZH.md) | 日本語 | [Changelog](CHANGELOG.md)
 
 </div>
+
+## 謝辞
+
+YKW Bridge は、オープンソースプロジェクト [**CC Switch**](https://github.com/farion1231/cc-switch) を出発点としています。
+
+原作者 [**Jason Young**](https://github.com/farion1231) をはじめ、原プロジェクトに貢献したすべての方々に心より感謝します。現在のこのプロジェクトが前に進み続けられるのは、原プロジェクトが築いた確かな土台があるからです。
+
+本プロジェクトは、原プロジェクトで採用されている **MIT License** に従って改変・保守・公開を継続しており、必要な著作権表示およびライセンス表記も維持しています。原プロジェクトとその貢献者、そしてその背後にあるオープンソースの営みに敬意を表します。
+
+この独立版を続けている理由はシンプルで、自分たちの使い方や保守方針、実際のニーズによりよく合う形へ発展させるためであり、同じような需要を持つ人たちにもその改善を届けたいと考えているからです。
+
+このプロジェクトを気に入っていただけたなら、ぜひ原プロジェクト [CC Switch](https://github.com/farion1231/cc-switch) と原作者 [Jason Young](https://github.com/farion1231) にも目を向けてみてください。
+
+このリポジトリは独立して保守されており、独自の方針で発展を続けていきます。
 
 
 ## YKW Bridge を選ぶ理由
@@ -38,7 +50,7 @@
 
 ## 特長
 
-[完全な更新履歴](CHANGELOG.md) | [リリースノート](docs/release-notes/v3.12.3-ja.md)
+[完全な更新履歴](CHANGELOG.md) | [リリースノート](docs/release-notes/v3.13.0-ja.md)
 
 ### プロバイダ管理
 
@@ -161,44 +173,27 @@ YKW Bridge は「最小限の介入」という設計原則に従っています
 
 ### Windows ユーザー
 
-[Releases](../../releases) ページから最新版の `CC-Switch-v{version}-Windows.msi` インストーラー、またはポータブル版 `CC-Switch-v{version}-Windows-Portable.zip` をダウンロード。
+[Releases](../../releases) ページから最新版の Windows インストーラー（`.msi`）またはポータブルアーカイブ（`.zip`）をダウンロードしてください。
 
 ### macOS ユーザー
 
-**方法 1: Homebrew でインストール（推奨）**
+**手動ダウンロード（現時点での推奨方法）**
 
-```bash
-brew tap SherlockShemol/ykw-bridge
-brew install --cask ykw-bridge
-```
+[Releases](../../releases) から最新版の macOS `.dmg`（推奨）または `.zip` をダウンロードしてください。
 
-アップデート:
-
-```bash
-brew upgrade --cask ykw-bridge
-```
-
-**方法 2: 手動ダウンロード**
-
-[Releases](../../releases) から `CC-Switch-v{version}-macOS.zip` をダウンロードして展開。
-
-> **注意**: 開発者アカウント未登録のため、初回起動時に「開発元を確認できません」と表示される場合があります。一度閉じてから「システム設定」→「プライバシーとセキュリティ」→「このまま開く」をクリックしてください。以降は通常通り起動できます。
+> **注意**: YKW Bridge の macOS 版は Apple によるコード署名と公証が完了しています。通常はそのままインストールして起動できます。
 
 ### Arch Linux ユーザー
 
-**paru でインストール（推奨）**
-
-```bash
-paru -S ykw-bridge-bin
-```
+現時点では、[Releases](../../releases) ページの最新版 `.AppImage` を利用するのがおすすめです。
 
 ### Linux ユーザー
 
 [Releases](../../releases) から最新版の Linux ビルドをダウンロード：
 
-- `CC-Switch-v{version}-Linux.deb`（Debian/Ubuntu）
-- `CC-Switch-v{version}-Linux.rpm`（Fedora/RHEL/openSUSE）
-- `CC-Switch-v{version}-Linux.AppImage`（汎用）
+- `.deb`（Debian/Ubuntu）
+- `.rpm`（Fedora/RHEL/openSUSE）
+- `.AppImage`（汎用）
 
 > **Flatpak**：公式リリースには含まれていません。`.deb` から自分でビルドできます — 手順は [`flatpak/README.md`](flatpak/README.md) を参照してください。
 
@@ -397,4 +392,4 @@ PR を送る前に以下をご確認ください：
 
 ## ライセンス
 
-MIT © Jason Young
+本プロジェクトは MIT License のもとで提供されています。詳細は [LICENSE](LICENSE) を参照してください。原プロジェクトの著作権表示は、ライセンス要件に従って保持されています。

@@ -9,11 +9,23 @@
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 [![Downloads](https://img.shields.io/github/downloads/SherlockShemol/ykw-bridge/total)](https://github.com/SherlockShemol/ykw-bridge/releases/latest)
 
-<a href="https://trendshift.io/repositories/15372" target="_blank"><img src="https://trendshift.io/api/badge/repositories/15372" alt="SherlockShemol%2Fykw-bridge | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
-
 English | [中文](README_ZH.md) | [日本語](README_JA.md) | [Changelog](CHANGELOG.md)
 
 </div>
+
+## Acknowledgement
+
+YKW Bridge started from the open-source project [**CC Switch**](https://github.com/farion1231/cc-switch).
+
+We would like to thank the original author [**Jason Young**](https://github.com/farion1231) and all contributors for the excellent work they put into the original project. Their effort created the solid foundation that made this project possible.
+
+Based on that foundation, we continue to modify, maintain, and publish this project under the **MIT License**, while retaining the relevant copyright and license notices. We respect the original project and deeply appreciate the open-source work behind it.
+
+This standalone version exists for a simple reason: to better fit our own workflow, maintenance direction, and practical needs, while also sharing those changes with people who may have similar needs.
+
+If you like this project, you are also welcome to check out the original project [CC Switch](https://github.com/farion1231/cc-switch) and the original author [Jason Young](https://github.com/farion1231).
+
+This repository is independently maintained and continues on its own path.
 
 
 ## Why YKW Bridge?
@@ -38,7 +50,7 @@ Modern AI-powered coding relies on CLI tools like Claude Code, Codex, Gemini CLI
 
 ## Features
 
-[Full Changelog](CHANGELOG.md) | [Release Notes](docs/release-notes/v3.12.3-en.md)
+[Full Changelog](CHANGELOG.md) | [Release Notes](docs/release-notes/v3.13.0-en.md)
 
 ### Provider Management
 
@@ -161,44 +173,27 @@ For detailed guides on every feature, check out the **[User Manual](docs/user-ma
 
 ### Windows Users
 
-Download the latest `CC-Switch-v{version}-Windows.msi` installer or `CC-Switch-v{version}-Windows-Portable.zip` portable version from the [Releases](../../releases) page.
+Download the latest Windows installer (`.msi`) or portable archive (`.zip`) from the [Releases](../../releases) page.
 
 ### macOS Users
 
-**Method 1: Install via Homebrew (Recommended)**
+**Manual Download (Recommended for now)**
 
-```bash
-brew tap SherlockShemol/ykw-bridge
-brew install --cask ykw-bridge
-```
-
-Update:
-
-```bash
-brew upgrade --cask ykw-bridge
-```
-
-**Method 2: Manual Download**
-
-Download `CC-Switch-v{version}-macOS.dmg` (recommended) or `.zip` from the [Releases](../../releases) page.
+Download the latest macOS `.dmg` (recommended) or `.zip` from the [Releases](../../releases) page.
 
 > **Note**: YKW Bridge for macOS is code-signed and notarized by Apple. You can install and open it directly.
 
 ### Arch Linux Users
 
-**Install via paru (Recommended)**
-
-```bash
-paru -S ykw-bridge-bin
-```
+For now, use the latest `.AppImage` from the [Releases](../../releases) page.
 
 ### Linux Users
 
 Download the latest Linux build from the [Releases](../../releases) page:
 
-- `CC-Switch-v{version}-Linux.deb` (Debian/Ubuntu)
-- `CC-Switch-v{version}-Linux.rpm` (Fedora/RHEL/openSUSE)
-- `CC-Switch-v{version}-Linux.AppImage` (Universal)
+- `.deb` (Debian/Ubuntu)
+- `.rpm` (Fedora/RHEL/openSUSE)
+- `.AppImage` (Universal)
 
 > **Flatpak**: Not included in official releases. You can build it yourself from the `.deb` — see [`flatpak/README.md`](flatpak/README.md) for instructions.
 
@@ -397,4 +392,4 @@ For new features, please open an issue for discussion before submitting a PR. PR
 
 ## License
 
-MIT © Jason Young
+Licensed under the MIT License. See [LICENSE](LICENSE) for details. The upstream copyright notice is retained in accordance with the license.
