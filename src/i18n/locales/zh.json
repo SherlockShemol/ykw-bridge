@@ -1,7 +1,7 @@
 {
   "app": {
     "title": "YKW Bridge",
-    "description": "Claude Code / Codex / Gemini CLI 全方位辅助工具"
+    "description": "Claude Code / Claude Desktop 专版管理工具"
   },
   "common": {
     "add": "添加",
@@ -44,7 +44,7 @@
   },
   "firstRunNotice": {
     "title": "欢迎使用 YKW Bridge",
-    "bodyDefault": "YKW Bridge 可以帮你在 Claude Code / Codex / Gemini CLI 的多个供应商之间一键切换。如果你之前已经配置过这些工具，YKW Bridge 会自动把现有设置保存为名为 “default” 的供应商，保证你的配置不会丢失。",
+    "bodyDefault": "YKW Bridge 可以帮你在 Claude Code 工作流里一键切换多个供应商，并把 Claude Desktop 配套能力放到同一个应用里统一管理。如果你之前已经配置过 Claude，YKW Bridge 会自动把现有设置保存为名为 “default” 的供应商，保证你的配置不会丢失。",
     "bodyOfficial": "列表里还预置了 “官方（Official）” 供应商，随时点一下即可切回官方默认配置。切换前 YKW Bridge 会自动把当前配置备份回 default，可以放心来回切。YKW Bridge 就是这样工作的 😊",
     "confirm": "我知道了"
   },
@@ -264,7 +264,7 @@
     "advanced": {
       "configDir": {
         "title": "配置文件目录",
-        "description": "管理 Claude、Codex 和 Gemini 的配置存储路径"
+        "description": "管理 Claude Code 与 Claude Desktop 相关配置路径"
       },
       "proxy": {
         "title": "本地路由",
@@ -565,7 +565,7 @@
       }
     },
     "configDirectoryOverride": "配置目录覆盖（高级）",
-    "configDirectoryDescription": "在 WSL 等环境使用 Claude Code 或 Codex 的时候，可手动指定为 WSL 里的配置目录，供应商数据与主环境保持一致。",
+    "configDirectoryDescription": "在 WSL 等环境使用 Claude Code 时，可手动指定为 WSL 里的配置目录，让供应商数据与主环境保持一致。",
     "appConfigDir": "YKW Bridge 配置目录",
     "appConfigDirDescription": "自定义 YKW Bridge 的配置存储位置（指定到云同步文件夹即可云同步配置）",
     "browsePlaceholderApp": "例如：C:\\Users\\Administrator\\.ykw-bridge",
@@ -599,7 +599,7 @@
     "viewReleaseNotes": "查看该版本更新日志",
     "viewCurrentReleaseNotes": "查看当前版本更新日志",
     "oneClickInstall": "一键安装",
-    "oneClickInstallHint": "安装 Claude Code / Codex / Gemini CLI / OpenCode",
+    "oneClickInstallHint": "安装 Claude Code",
     "localEnvCheck": "本地环境检查",
     "envBadge": {
       "wsl": "WSL",
@@ -660,7 +660,7 @@
   },
   "sessionManager": {
     "title": "会话管理",
-    "subtitle": "管理 Claude Code、Codex、OpenCode、OpenClaw 与 Gemini CLI 会话记录",
+    "subtitle": "管理 Claude Code 会话记录",
     "searchPlaceholder": "搜索会话内容、目录或 ID",
     "searchSessions": "搜索会话",
     "providerFilterAll": "全部",
@@ -1085,8 +1085,7 @@
     "appFilter": {
       "all": "全部",
       "claude": "Claude Code",
-      "codex": "Codex",
-      "gemini": "Gemini"
+      "claude_desktop": "Claude Desktop"
     },
     "dataSources": "数据来源",
     "dataSource": {
@@ -1652,7 +1651,7 @@
   "skills": {
     "manage": "Skills",
     "title": "Skills 管理",
-    "description": "从流行的仓库发现并安装技能，扩展 Claude Code/Codex/Gemini 的能力",
+    "description": "从流行仓库发现并安装技能，扩展 Claude Code 的能力",
     "refresh": "刷新",
     "refreshing": "刷新中...",
     "repoManager": "仓库管理",
@@ -2121,8 +2120,6 @@
     "configSaveFailed": "保存失败",
     "testModels": "测试模型",
     "claudeModel": "Claude 模型",
-    "codexModel": "Codex 模型",
-    "geminiModel": "Gemini 模型",
     "checkParams": "检查参数",
     "timeout": "超时时间（秒）",
     "maxRetries": "最大重试次数",

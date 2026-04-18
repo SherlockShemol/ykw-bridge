@@ -2,7 +2,7 @@
 
 # You Know Who Bridge (YKW Bridge)
 
-### The All-in-One Manager for Claude Code, Codex, Gemini CLI, OpenCode & OpenClaw
+### Claude Code + Claude Desktop Provider Manager
 
 [![Version](https://img.shields.io/github/v/release/SherlockShemol/ykw-bridge?color=blue&label=version)](https://github.com/SherlockShemol/ykw-bridge/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/SherlockShemol/ykw-bridge/releases)
@@ -30,13 +30,13 @@ This repository is independently maintained and continues on its own path.
 
 ## Why YKW Bridge?
 
-Modern AI-powered coding relies on CLI tools like Claude Code, Codex, Gemini CLI, OpenCode, and OpenClaw — but each has its own configuration format. Switching API providers means manually editing JSON, TOML, or `.env` files, and there is no unified way to manage MCP and Skills across multiple tools.
+Modern Claude workflows still mean juggling provider configs, proxy settings, MCP servers, prompts, skills, and Claude Desktop launch/runtime setup. Switching providers by hand usually means editing JSON and hoping nothing breaks.
 
-**YKW Bridge** gives you a single desktop app to manage all five CLI tools. Instead of editing config files by hand, you get a visual interface to import providers with one click, switch between them instantly, with 50+ built-in provider presets, unified MCP and Skills management, and system tray quick switching — all backed by a reliable SQLite database with atomic writes that protect your configs from corruption.
+**YKW Bridge** is now focused on **Claude Code** and **Claude Desktop**. It gives you one desktop app for Claude-side provider management, managed auth, MCP, prompts, skills, sessions, usage, proxy, failover, and Claude Desktop doctor/certificate/launch tooling.
 
-- **One App, Five CLI Tools** — Manage Claude Code, Codex, Gemini CLI, OpenCode, and OpenClaw from a single interface
-- **No More Manual Editing** — 50+ provider presets including AWS Bedrock, NVIDIA NIM, and community relays; just pick and switch
-- **Unified MCP & Skills Management** — One panel to manage MCP servers and Skills across four apps with bidirectional sync
+- **One app for Claude workflows** — Manage Claude Code and Claude Desktop from a single interface
+- **No More Manual Editing** — Import providers visually and switch quickly without hand-editing config files
+- **Unified MCP & Skills Management** — One panel for Claude-side MCP servers and skills
 - **System Tray Quick Switch** — Switch providers instantly from the tray menu, no need to open the full app
 - **Cloud Sync** — Sync provider data across devices via Dropbox, OneDrive, iCloud, or WebDAV servers
 - **Cross-Platform** — Native desktop app for Windows, macOS, and Linux, built with Tauri 2
@@ -54,19 +54,19 @@ Modern AI-powered coding relies on CLI tools like Claude Code, Codex, Gemini CLI
 
 ### Provider Management
 
-- **5 CLI tools, 50+ presets** — Claude Code, Codex, Gemini CLI, OpenCode, OpenClaw; copy your key and import with one click
-- **Universal providers** — One config syncs to multiple apps (OpenCode, OpenClaw)
+- **Claude provider management** — Import, edit, switch, sort, and export Claude providers
+- **Managed auth preserved** — GitHub Copilot OAuth and ChatGPT / OpenAI OAuth still work inside the Claude workflow
 - One-click switching, system tray quick access, drag-and-drop sorting, import/export
 
 ### Proxy & Failover
 
 - **Local proxy with hot-switching** — Format conversion, auto-failover, circuit breaker, provider health monitoring, and request rectifier
-- **App-level takeover** — Independently proxy Claude, Codex, or Gemini, down to individual providers
+- **App-level takeover** — Independently proxy Claude Code and Claude Desktop, down to individual providers
 
 ### MCP, Prompts & Skills
 
-- **Unified MCP panel** — Manage MCP servers across 4 apps with bidirectional sync and Deep Link import
-- **Prompts** — Markdown editor with cross-app sync (CLAUDE.md / AGENTS.md / GEMINI.md) and backfill protection
+- **Unified MCP panel** — Manage Claude MCP servers with Deep Link import
+- **Prompts** — Markdown editor for Claude prompt files with backfill protection
 - **Skills** — One-click install from GitHub repos or ZIP files, custom repository management, with symlink and file copy support
 
 ### Usage & Cost Tracking
@@ -75,8 +75,8 @@ Modern AI-powered coding relies on CLI tools like Claude Code, Codex, Gemini CLI
 
 ### Session Manager & Workspace
 
-- Browse, search, and restore conversation history across all apps
-- **Workspace editor** (OpenClaw) — Edit agent files (AGENTS.md, SOUL.md, etc.) with Markdown preview
+- Browse, search, and restore Claude conversation history
+- **Claude Desktop tools** — Doctor, certificate, launch shim, watchdog, and takeover status in one place
 
 ### System & Platform
 
@@ -87,9 +87,9 @@ Modern AI-powered coding relies on CLI tools like Claude Code, Codex, Gemini CLI
 ## FAQ
 
 <details>
-<summary><strong>Which AI CLI tools does YKW Bridge support?</strong></summary>
+<summary><strong>Which tools does YKW Bridge support now?</strong></summary>
 
-YKW Bridge supports five tools: **Claude Code**, **Codex**, **Gemini CLI**, **OpenCode**, and **OpenClaw**. Each tool has dedicated provider presets and configuration management.
+This edition supports **Claude Code** and **Claude Desktop**. **GitHub Copilot** and **ChatGPT / OpenAI** auth remain available as managed auth inside the Claude provider flow.
 
 </details>
 
@@ -117,14 +117,14 @@ YKW Bridge for macOS is code-signed and notarized by Apple. You can download and
 <details>
 <summary><strong>Why can't I delete the currently active provider?</strong></summary>
 
-YKW Bridge follows a "minimal intrusion" design principle — even if you uninstall the app, your CLI tools will continue to work normally. The system always keeps one active configuration, because deleting all configurations would make the corresponding CLI tool unusable. If you rarely use a specific CLI tool, you can hide it in Settings. To switch back to official login, see the next question.
+YKW Bridge follows a "minimal intrusion" design principle — even if you uninstall the app, Claude Code will continue to work normally. The system always keeps one active configuration, because deleting every configuration would leave Claude without a usable provider. To switch back to official login, see the next question.
 
 </details>
 
 <details>
 <summary><strong>How do I switch back to official login?</strong></summary>
 
-Add an official provider from the preset list. After switching to it, run the Log out / Log in flow, and then you can freely switch between the official provider and third-party providers. Codex supports switching between different official providers, making it easy to switch between multiple Plus or Team accounts.
+Add an official Claude provider from the preset list. After switching to it, run the Log out / Log in flow, and then you can freely switch between the official provider and third-party providers.
 
 </details>
 
@@ -345,11 +345,9 @@ pnpm test:unit --coverage
 │   │   ├── skills/             # Skills management
 │   │   ├── sessions/           # Session Manager
 │   │   ├── proxy/              # Proxy mode panel
-│   │   ├── openclaw/           # OpenClaw config panels
 │   │   ├── settings/           # Settings (Terminal/Backup/About)
 │   │   ├── deeplink/           # Deep Link import
 │   │   ├── env/                # Environment variable management
-│   │   ├── universal/          # Cross-app configuration
 │   │   ├── usage/              # Usage statistics
 │   │   └── ui/                 # shadcn/ui component library
 │   ├── hooks/                  # Custom hooks (business logic)

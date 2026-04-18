@@ -103,7 +103,7 @@ export function ModelTestConfigPanel() {
         <h4 className="text-sm font-medium text-muted-foreground">
           {t("streamCheck.testModels")}
         </h4>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 gap-4">
           <div className="space-y-2">
             <Label htmlFor="claudeModel">{t("streamCheck.claudeModel")}</Label>
             <Input
@@ -113,30 +113,6 @@ export function ModelTestConfigPanel() {
                 setConfig({ ...config, claudeModel: e.target.value })
               }
               placeholder="claude-3-5-haiku-latest"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="codexModel">{t("streamCheck.codexModel")}</Label>
-            <Input
-              id="codexModel"
-              value={config.codexModel}
-              onChange={(e) =>
-                setConfig({ ...config, codexModel: e.target.value })
-              }
-              placeholder="gpt-4o-mini"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="geminiModel">{t("streamCheck.geminiModel")}</Label>
-            <Input
-              id="geminiModel"
-              value={config.geminiModel}
-              onChange={(e) =>
-                setConfig({ ...config, geminiModel: e.target.value })
-              }
-              placeholder="gemini-1.5-flash"
             />
           </div>
         </div>

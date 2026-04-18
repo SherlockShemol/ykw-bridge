@@ -123,7 +123,7 @@ export interface ProviderLimitStatus {
 
 export type TimeRange = "1d" | "7d" | "30d";
 
-export type AppTypeFilter = "all" | "claude" | "codex" | "gemini";
+export type AppTypeFilter = "all" | "claude" | "claude_desktop";
 
 export interface StatsFilters {
   timeRange: TimeRange;

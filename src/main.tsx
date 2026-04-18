@@ -76,7 +76,7 @@ function renderNonTauriHint(): void {
               overflowX: "auto",
             }}
           >
-            {`cd /Users/shemol/Code/claude-desktop-switch/ykw-bridge
+            {`cd /path/to/ykw-bridge
 pnpm dev`}
           </pre>
           <p style={{ marginTop: "12px", color: "#9da7b3" }}>

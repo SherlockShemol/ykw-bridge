@@ -17,18 +17,11 @@ export interface AppConfig {
 
 export const APP_IDS: AppId[] = [
   "claude",
-  "codex",
-  "gemini",
-  "opencode",
-  "openclaw",
 ];
 
-/** App IDs shown in MCP & Skills panels (excludes OpenClaw) */
+/** App IDs shown in MCP & Skills panels */
 export const MCP_SKILLS_APP_IDS = [
   "claude",
-  "codex",
-  "gemini",
-  "opencode",
 ] as const satisfies readonly AppId[];
 
 export const APP_ICON_MAP: Record<AppId, AppConfig> = {

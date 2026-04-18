@@ -1,7 +1,7 @@
 {
   "app": {
     "title": "YKW Bridge",
-    "description": "Claude Code・Codex・Gemini CLI のためのオールインワンアシスタント"
+    "description": "Claude Code / Claude Desktop 専用版"
   },
   "common": {
     "add": "追加",
@@ -44,7 +44,7 @@
   },
   "firstRunNotice": {
     "title": "YKW Bridge へようこそ",
-    "bodyDefault": "YKW Bridge は Claude Code / Codex / Gemini CLI の複数プロバイダーをワンクリックで切り替えられるツールです。すでにこれらのツールを設定済みの場合、YKW Bridge は現在の設定を「default」という名前のプロバイダーとして自動的に保存するので、既存の設定が失われることはありません。",
+    "bodyDefault": "YKW Bridge は Claude Code 向けに複数プロバイダーをワンクリックで切り替えられ、Claude Desktop の補助機能も同じアプリで管理できます。すでに Claude を設定済みの場合、現在の設定は「default」という名前のプロバイダーとして自動保存されるため、既存の設定は失われません。",
     "bodyOfficial": "リストには「Official（公式）」プリセットも用意されており、公式バージョンに戻したくなったらクリックするだけで切り替えられます。切り替える前に現在の設定は自動で default にバックアップされるので、自由に行き来できます。これが YKW Bridge の仕組みです 😊",
     "confirm": "了解しました"
   },
@@ -264,7 +264,7 @@
     "advanced": {
       "configDir": {
         "title": "設定ディレクトリ",
-        "description": "Claude、Codex、Gemini の設定保存パスを管理"
+        "description": "Claude Code / Claude Desktop 関連の保存先を管理"
       },
       "proxy": {
         "title": "ローカルルーティング",
@@ -565,7 +565,7 @@
       }
     },
     "configDirectoryOverride": "設定ディレクトリの上書き（詳細）",
-    "configDirectoryDescription": "WSL などで Claude Code や Codex を使う場合、ここで設定ディレクトリを WSL 側に合わせるとデータを揃えられます。",
+    "configDirectoryDescription": "WSL などで Claude Code を使う場合、WSL 側の設定ディレクトリを指定して、プロバイダー情報をメイン環境と揃えられます。",
     "appConfigDir": "YKW Bridge 設定ディレクトリ",
     "appConfigDirDescription": "YKW Bridge の保存場所をカスタマイズします（クラウド同期フォルダを指定すると設定を同期できます）",
     "browsePlaceholderApp": "例: C:\\\\Users\\\\Administrator\\\\.ykw-bridge",
@@ -599,7 +599,7 @@
     "viewReleaseNotes": "このバージョンのリリースノートを見る",
     "viewCurrentReleaseNotes": "現在のバージョンのリリースノートを見る",
     "oneClickInstall": "ワンクリックインストール",
-    "oneClickInstallHint": "Claude Code / Codex / Gemini CLI / OpenCode をインストール",
+    "oneClickInstallHint": "Claude Code をインストール",
     "localEnvCheck": "ローカル環境チェック",
     "envBadge": {
       "wsl": "WSL",
@@ -660,7 +660,7 @@
   },
   "sessionManager": {
     "title": "セッション管理",
-    "subtitle": "Claude Code / Codex / OpenCode / OpenClaw / Gemini CLI のセッションを管理",
+    "subtitle": "Claude Code のセッションを管理",
     "searchPlaceholder": "内容・ディレクトリ・ID で検索",
     "searchSessions": "セッションを検索",
     "providerFilterAll": "すべて",
@@ -1084,8 +1084,7 @@
     "appFilter": {
       "all": "すべて",
       "claude": "Claude Code",
-      "codex": "Codex",
-      "gemini": "Gemini"
+      "claude_desktop": "Claude Desktop"
     },
     "dataSources": "データソース",
     "dataSource": {
@@ -1651,7 +1650,7 @@
   "skills": {
     "manage": "Skills",
     "title": "Skills 管理",
-    "description": "人気リポジトリからスキルを探してインストールし、Claude Code/Codex/Gemini を拡張",
+    "description": "人気リポジトリから skill を導入して Claude Code を拡張",
     "refresh": "更新",
     "refreshing": "更新中...",
     "repoManager": "リポジトリ管理",
@@ -2120,8 +2119,6 @@
     "configSaveFailed": "保存に失敗しました",
     "testModels": "テストモデル",
     "claudeModel": "Claude モデル",
-    "codexModel": "Codex モデル",
-    "geminiModel": "Gemini モデル",
     "checkParams": "チェックパラメーター",
     "timeout": "タイムアウト（秒）",
     "maxRetries": "最大リトライ回数",

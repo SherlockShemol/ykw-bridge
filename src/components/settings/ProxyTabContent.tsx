@@ -171,10 +171,11 @@ export function ProxyTabContent({
               )}
 
               <Tabs defaultValue="claude" className="w-full">
-                <TabsList className="grid w-full grid-cols-3">
-                  <TabsTrigger value="claude">Claude</TabsTrigger>
-                  <TabsTrigger value="codex">Codex</TabsTrigger>
-                  <TabsTrigger value="gemini">Gemini</TabsTrigger>
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="claude">Claude Code</TabsTrigger>
+                  <TabsTrigger value="claude_desktop">
+                    Claude Desktop
+                  </TabsTrigger>
                 </TabsList>
                 <TabsContent value="claude" className="mt-4 space-y-6">
                   <div className="space-y-4">
@@ -198,7 +199,10 @@ export function ProxyTabContent({
                     />
                   </div>
                 </TabsContent>
-                <TabsContent value="codex" className="mt-4 space-y-6">
+                <TabsContent
+                  value="claude_desktop"
+                  className="mt-4 space-y-6"
+                >
                   <div className="space-y-4">
                     <div>
                       <h4 className="text-sm font-semibold">
@@ -209,35 +213,13 @@ export function ProxyTabContent({
                       </p>
                     </div>
                     <FailoverQueueManager
-                      appType="codex"
+                      appType="claude_desktop"
                       disabled={!isRunning}
                     />
                   </div>
                   <div className="border-t border-border/50 pt-6">
                     <AutoFailoverConfigPanel
-                      appType="codex"
-                      disabled={!isRunning}
-                    />
-                  </div>
-                </TabsContent>
-                <TabsContent value="gemini" className="mt-4 space-y-6">
-                  <div className="space-y-4">
-                    <div>
-                      <h4 className="text-sm font-semibold">
-                        {t("proxy.failoverQueue.title")}
-                      </h4>
-                      <p className="text-xs text-muted-foreground">
-                        {t("proxy.failoverQueue.description")}
-                      </p>
-                    </div>
-                    <FailoverQueueManager
-                      appType="gemini"
-                      disabled={!isRunning}
-                    />
-                  </div>
-                  <div className="border-t border-border/50 pt-6">
-                    <AutoFailoverConfigPanel
-                      appType="gemini"
+                      appType="claude_desktop"
                       disabled={!isRunning}
                     />
                   </div>

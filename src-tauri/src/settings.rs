@@ -71,6 +71,20 @@ impl VisibleApps {
     }
 }
 
+fn backup_settings_file_for_claude_only_cleanup(path: &PathBuf) -> Result<Option<PathBuf>, AppError> {
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let backup_name = format!(
+        "settings.claude-only-backup-{}.json",
+        chrono::Local::now().format("%Y%m%d-%H%M%S")
+    );
+    let backup_path = path.with_file_name(backup_name);
+    fs::copy(path, &backup_path).map_err(|e| AppError::io(path, e))?;
+    Ok(Some(backup_path))
+}
+
 /// WebDAV 同步状态（持久化同步进度信息）
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -437,10 +451,7 @@ impl AppSettings {
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string());
 
-        if self.current_provider_claude.is_none() {
-            self.current_provider_claude = self.current_provider_claude_desktop.clone();
-        }
-        self.current_provider_claude_desktop = None;
+        self.enforce_claude_only_shape();
 
         if let Some(sync) = &mut self.webdav_sync {
             sync.normalize();
@@ -448,6 +459,36 @@ impl AppSettings {
                 self.webdav_sync = None;
             }
         }
+    }
+
+    fn enforce_claude_only_shape(&mut self) {
+        if self.current_provider_claude.is_none() {
+            self.current_provider_claude = self.current_provider_claude_desktop.clone();
+        }
+
+        self.visible_apps = None;
+        self.current_provider_claude_desktop = None;
+        self.codex_config_dir = None;
+        self.gemini_config_dir = None;
+        self.opencode_config_dir = None;
+        self.openclaw_config_dir = None;
+        self.current_provider_codex = None;
+        self.current_provider_gemini = None;
+        self.current_provider_opencode = None;
+        self.current_provider_openclaw = None;
+    }
+
+    fn needs_claude_only_cleanup(&self) -> bool {
+        self.visible_apps.is_some()
+            || self.codex_config_dir.is_some()
+            || self.gemini_config_dir.is_some()
+            || self.opencode_config_dir.is_some()
+            || self.openclaw_config_dir.is_some()
+            || self.current_provider_claude_desktop.is_some()
+            || self.current_provider_codex.is_some()
+            || self.current_provider_gemini.is_some()
+            || self.current_provider_opencode.is_some()
+            || self.current_provider_openclaw.is_some()
     }
 
     fn load_from_file() -> Self {
@@ -565,6 +606,33 @@ pub fn update_settings(mut new_settings: AppSettings) -> Result<(), AppError> {
     });
     *guard = new_settings;
     Ok(())
+}
+
+pub fn apply_claude_only_cleanup() -> Result<bool, AppError> {
+    let should_cleanup = settings_store()
+        .read()
+        .map(|settings| settings.needs_claude_only_cleanup())
+        .unwrap_or(false);
+
+    if !should_cleanup {
+        return Ok(false);
+    }
+
+    if let Some(path) = AppSettings::settings_path() {
+        match backup_settings_file_for_claude_only_cleanup(&path) {
+            Ok(Some(backup_path)) => {
+                log::info!(
+                    "Backed up settings.json before Claude-only cleanup: {}",
+                    backup_path.display()
+                );
+            }
+            Ok(None) => {}
+            Err(e) => log::warn!("Failed to back up settings.json before cleanup: {e}"),
+        }
+    }
+
+    mutate_settings(|settings| settings.enforce_claude_only_shape())?;
+    Ok(true)
 }
 
 fn mutate_settings<F>(mutator: F) -> Result<(), AppError>

@@ -227,8 +227,7 @@ export function RequestLogTable({
             <SelectContent>
               <SelectItem value="all">{t("usage.allApps")}</SelectItem>
               <SelectItem value="claude">Claude</SelectItem>
-              <SelectItem value="codex">Codex</SelectItem>
-              <SelectItem value="gemini">Gemini</SelectItem>
+              <SelectItem value="claude_desktop">Claude Desktop</SelectItem>
             </SelectContent>
           </Select>
 

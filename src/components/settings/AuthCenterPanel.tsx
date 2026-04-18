@@ -58,10 +58,10 @@ export function AuthCenterPanel() {
             <CodexIcon size={20} />
           </div>
           <div>
-            <h4 className="font-medium">ChatGPT (Codex OAuth)</h4>
+            <h4 className="font-medium">ChatGPT / OpenAI</h4>
             <p className="text-sm text-muted-foreground">
               {t("settings.authCenter.codexOauthDescription", {
-                defaultValue: "管理 ChatGPT 账号",
+                defaultValue: "管理 ChatGPT / OpenAI 账号",
               })}
             </p>
           </div>

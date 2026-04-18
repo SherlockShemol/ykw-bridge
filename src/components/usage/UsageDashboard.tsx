@@ -27,12 +27,7 @@ import {
 import { PricingConfigPanel } from "@/components/usage/PricingConfigPanel";
 import { cn } from "@/lib/utils";
 
-const APP_FILTER_OPTIONS: AppTypeFilter[] = [
-  "all",
-  "claude",
-  "codex",
-  "gemini",
-];
+const APP_FILTER_OPTIONS: AppTypeFilter[] = ["all", "claude", "claude_desktop"];
 
 export function UsageDashboard() {
   const { t } = useTranslation();

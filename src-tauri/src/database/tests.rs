@@ -729,6 +729,203 @@ fn schema_model_pricing_is_seeded_on_init() {
 }
 
 #[test]
+fn claude_only_cleanup_prunes_non_claude_runtime_state() {
+    let db = Database::memory().expect("create memory db");
+
+    db.save_provider(
+        "claude",
+        &Provider::with_id(
+            "claude-user".to_string(),
+            "Claude User".to_string(),
+            json!({ "env": {} }),
+            None,
+        ),
+    )
+    .expect("seed claude provider");
+    db.save_provider(
+        "codex",
+        &Provider::with_id(
+            "codex-user".to_string(),
+            "Codex User".to_string(),
+            json!({ "auth": {} }),
+            None,
+        ),
+    )
+    .expect("seed codex provider");
+    db.save_provider(
+        "gemini",
+        &Provider::with_id(
+            "gemini-user".to_string(),
+            "Gemini User".to_string(),
+            json!({ "env": {} }),
+            None,
+        ),
+    )
+    .expect("seed gemini provider");
+
+    db.set_setting("universal_providers", r#"{"legacy":true}"#)
+        .expect("seed universal providers");
+    db.set_setting("common_config_codex", "{}")
+        .expect("seed codex common config");
+    db.set_setting("official_providers_seeded", "true")
+        .expect("seed official flag");
+
+    {
+        let conn = db.conn.lock().expect("lock conn");
+        conn.execute(
+            "INSERT INTO prompts (id, app_type, name, content) VALUES (?1, ?2, ?3, ?4)",
+            params!["claude-prompt", "claude", "Claude Prompt", "hello"],
+        )
+        .expect("insert claude prompt");
+        conn.execute(
+            "INSERT INTO prompts (id, app_type, name, content) VALUES (?1, ?2, ?3, ?4)",
+            params!["codex-prompt", "codex", "Codex Prompt", "world"],
+        )
+        .expect("insert codex prompt");
+        conn.execute(
+            "INSERT INTO mcp_servers (id, name, server_config, enabled_claude) VALUES (?1, ?2, ?3, 1)",
+            params!["claude-mcp", "Claude MCP", "{}"],
+        )
+        .expect("insert claude mcp");
+        conn.execute(
+            "INSERT INTO mcp_servers (id, name, server_config, enabled_codex) VALUES (?1, ?2, ?3, 1)",
+            params!["codex-mcp", "Codex MCP", "{}"],
+        )
+        .expect("insert codex mcp");
+        conn.execute(
+            "INSERT INTO skills (id, name, directory, enabled_claude, installed_at, updated_at) VALUES (?1, ?2, ?3, 1, 1, 1)",
+            params!["claude-skill", "Claude Skill", "claude-skill"],
+        )
+        .expect("insert claude skill");
+        conn.execute(
+            "INSERT INTO skills (id, name, directory, enabled_codex, installed_at, updated_at) VALUES (?1, ?2, ?3, 1, 1, 1)",
+            params!["codex-skill", "Codex Skill", "codex-skill"],
+        )
+        .expect("insert codex skill");
+        conn.execute(
+            "INSERT INTO proxy_request_logs (request_id, provider_id, app_type, model, latency_ms, status_code, created_at)
+             VALUES (?1, ?2, ?3, ?4, 1, 200, 1)",
+            params!["claude-log", "claude-user", "claude", "claude-sonnet-4-5"],
+        )
+        .expect("insert claude log");
+        conn.execute(
+            "INSERT INTO proxy_request_logs (request_id, provider_id, app_type, model, latency_ms, status_code, created_at)
+             VALUES (?1, ?2, ?3, ?4, 1, 200, 1)",
+            params!["codex-log", "codex-user", "codex", "gpt-5.4"],
+        )
+        .expect("insert codex log");
+    }
+
+    let applied = db
+        .apply_claude_only_cleanup()
+        .expect("apply Claude-only cleanup");
+    assert!(applied, "cleanup should run on first invocation");
+
+    assert_eq!(
+        db.get_all_providers("claude")
+            .expect("list claude providers")
+            .len(),
+        1,
+        "claude providers should be preserved"
+    );
+    assert!(
+        db.get_all_providers("codex")
+            .expect("list codex providers")
+            .is_empty(),
+        "codex providers should be removed"
+    );
+    assert!(
+        db.get_all_providers("gemini")
+            .expect("list gemini providers")
+            .is_empty(),
+        "gemini providers should be removed"
+    );
+
+    let conn = db.conn.lock().expect("lock conn");
+    let prompt_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM prompts WHERE app_type = 'claude'", [], |r| {
+            r.get(0)
+        })
+        .expect("count claude prompts");
+    assert_eq!(prompt_count, 1, "claude prompts should remain");
+
+    let foreign_prompt_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM prompts WHERE app_type <> 'claude'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("count foreign prompts");
+    assert_eq!(foreign_prompt_count, 0, "non-Claude prompts should be removed");
+
+    let proxy_rows: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM proxy_config WHERE app_type IN ('claude', 'claude_desktop')",
+            [],
+            |r| r.get(0),
+        )
+        .expect("count kept proxy rows");
+    assert_eq!(proxy_rows, 2, "Claude proxy rows should remain");
+
+    let extra_proxy_rows: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM proxy_config WHERE app_type NOT IN ('claude', 'claude_desktop')",
+            [],
+            |r| r.get(0),
+        )
+        .expect("count removed proxy rows");
+    assert_eq!(extra_proxy_rows, 0, "non-Claude proxy rows should be removed");
+
+    let foreign_logs: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM proxy_request_logs WHERE app_type NOT IN ('claude', 'claude_desktop')",
+            [],
+            |r| r.get(0),
+        )
+        .expect("count foreign logs");
+    assert_eq!(foreign_logs, 0, "non-Claude logs should be removed");
+
+    let codex_mcp: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM mcp_servers WHERE id = 'codex-mcp'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("count codex mcp");
+    assert_eq!(codex_mcp, 0, "non-Claude MCP rows should be removed");
+
+    let codex_skill: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM skills WHERE id = 'codex-skill'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("count codex skill");
+    assert_eq!(codex_skill, 0, "non-Claude skills should be removed");
+
+    let universal_setting: Option<String> = conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = 'universal_providers'",
+            [],
+            |r| r.get(0),
+        )
+        .ok();
+    assert!(
+        universal_setting.is_none(),
+        "universal provider state should be removed"
+    );
+
+    let cleanup_flag: String = conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = 'claude_only_cleanup_v1'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("read cleanup flag");
+    assert_eq!(cleanup_flag, "true");
+}
+
+#[test]
 fn ensure_incremental_auto_vacuum_rebuilds_existing_file_db() {
     let temp = NamedTempFile::new().expect("create temp db file");
     let path = temp.path().to_path_buf();

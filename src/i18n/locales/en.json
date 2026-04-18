@@ -1,7 +1,7 @@
 {
   "app": {
     "title": "YKW Bridge",
-    "description": "All-in-One Assistant for Claude Code, Codex & Gemini CLI"
+    "description": "Claude Code / Claude Desktop Edition"
   },
   "common": {
     "add": "Add",
@@ -44,7 +44,7 @@
   },
   "firstRunNotice": {
     "title": "Welcome to YKW Bridge",
-    "bodyDefault": "YKW Bridge lets you switch between multiple Claude Code / Codex / Gemini CLI providers with a single click. If you already had these tools configured, YKW Bridge has saved your existing setup as a provider named “default” so none of your previous configuration is lost.",
+    "bodyDefault": "YKW Bridge lets you switch between multiple providers for your Claude Code workflow and keeps Claude Desktop companion tooling in the same app. If you already had Claude configured, YKW Bridge saves your existing setup as a provider named “default” so none of your previous configuration is lost.",
     "bodyOfficial": "An “Official” preset is also included in the list — click it any time you want to switch back to the official default. YKW Bridge automatically backs up your current config to “default” before switching, so you can move back and forth freely. That's how YKW Bridge works 😊",
     "confirm": "Got it"
   },
@@ -264,7 +264,7 @@
     "advanced": {
       "configDir": {
         "title": "Configuration Directory",
-        "description": "Manage storage paths for Claude, Codex and Gemini configurations"
+        "description": "Manage Claude Code and Claude Desktop related paths"
       },
       "proxy": {
         "title": "Local Routing",
@@ -565,7 +565,7 @@
       }
     },
     "configDirectoryOverride": "Configuration Directory Override (Advanced)",
-    "configDirectoryDescription": "When using Claude Code or Codex in environments like WSL, you can manually specify the configuration directory to the one in WSL to keep provider data consistent with the main environment.",
+    "configDirectoryDescription": "When using Claude Code in environments like WSL, you can manually point to the WSL-side configuration directory to keep provider data aligned with the main environment.",
     "appConfigDir": "YKW Bridge Configuration Directory",
     "appConfigDirDescription": "Customize the storage location for YKW Bridge configuration (point to cloud sync folder to enable config sync)",
     "browsePlaceholderApp": "e.g., C:\\Users\\Administrator\\.ykw-bridge",
@@ -599,7 +599,7 @@
     "viewReleaseNotes": "View release notes for this version",
     "viewCurrentReleaseNotes": "View current version release notes",
     "oneClickInstall": "One-click Install",
-    "oneClickInstallHint": "Install Claude Code / Codex / Gemini CLI / OpenCode",
+    "oneClickInstallHint": "Install Claude Code",
     "localEnvCheck": "Local environment check",
     "envBadge": {
       "wsl": "WSL",
@@ -660,7 +660,7 @@
   },
   "sessionManager": {
     "title": "Session Manager",
-    "subtitle": "Manage Claude Code, Codex, OpenCode, OpenClaw and Gemini CLI sessions",
+    "subtitle": "Manage Claude Code sessions",
     "searchPlaceholder": "Search by content, directory, or ID",
     "searchSessions": "Search sessions",
     "providerFilterAll": "All",
@@ -1084,8 +1084,7 @@
     "appFilter": {
       "all": "All",
       "claude": "Claude Code",
-      "codex": "Codex",
-      "gemini": "Gemini"
+      "claude_desktop": "Claude Desktop"
     },
     "dataSources": "Data Sources",
     "dataSource": {
@@ -1651,7 +1650,7 @@
   "skills": {
     "manage": "Skills",
     "title": "Skills Management",
-    "description": "Discover and install skills from popular repositories to extend Claude Code/Codex/Gemini capabilities",
+    "description": "Discover and install skills from popular repositories to extend Claude Code",
     "refresh": "Refresh",
     "refreshing": "Refreshing...",
     "repoManager": "Repository Management",
@@ -2120,8 +2119,6 @@
     "configSaveFailed": "Save failed",
     "testModels": "Test Models",
     "claudeModel": "Claude Model",
-    "codexModel": "Codex Model",
-    "geminiModel": "Gemini Model",
     "checkParams": "Check Parameters",
     "timeout": "Timeout (seconds)",
     "maxRetries": "Max Retries",

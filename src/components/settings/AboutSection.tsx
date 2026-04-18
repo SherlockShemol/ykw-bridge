@@ -42,7 +42,7 @@ interface ToolVersion {
   wsl_distro: string | null;
 }
 
-const TOOL_NAMES = ["claude", "codex", "gemini", "opencode"] as const;
+const TOOL_NAMES = ["claude"] as const;
 type ToolName = (typeof TOOL_NAMES)[number];
 
 type WslShellPreference = {
@@ -81,13 +81,7 @@ const ENV_BADGE_CONFIG: Record<
 };
 
 const ONE_CLICK_INSTALL_COMMANDS = `# Claude Code (Native install - recommended)
-curl -fsSL https://claude.ai/install.sh | bash
-# Codex
-npm i -g @openai/codex@latest
-# Gemini CLI
-npm i -g @google/gemini-cli@latest
-# OpenCode
-curl -fsSL https://opencode.ai/install | bash`;
+curl -fsSL https://claude.ai/install.sh | bash`;
 
 export function AboutSection({ isPortable }: AboutSectionProps) {
   // ... (use hooks as before) ...
@@ -446,14 +440,11 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
             </Button>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 px-1">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 px-1">
             {TOOL_NAMES.map((toolName, index) => {
               const tool = toolVersions.find((item) => item.name === toolName);
-              // Special case for OpenCode (capital C), others use capitalize
               const displayName =
-                toolName === "opencode"
-                  ? "OpenCode"
-                  : toolName.charAt(0).toUpperCase() + toolName.slice(1);
+                toolName.charAt(0).toUpperCase() + toolName.slice(1);
               const title = tool?.version || tool?.error || t("common.unknown");
 
               return (

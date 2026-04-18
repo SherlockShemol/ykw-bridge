@@ -5,8 +5,7 @@
 //!
 //! 字段与前端预设保持一致，参见：
 //! - `src/config/claudeProviderPresets.ts`（"Claude Official"）
-//! - `src/config/codexProviderPresets.ts`（"OpenAI Official"）
-//! - `src/config/geminiProviderPresets.ts`（"Google Official"）
+//! Claude 专版只保留 Claude 官方预设。
 
 use crate::app_config::AppType;
 
@@ -22,7 +21,7 @@ pub(crate) struct OfficialProviderSeed {
     pub settings_config_json: &'static str,
 }
 
-/// Claude / Codex / Gemini 三个应用的官方预设。
+/// Claude 专版的官方预设。
 ///
 /// id 固定，便于幂等检查；name 直接用英文原名（与前端预设一致），不做 i18n。
 pub(crate) const OFFICIAL_SEEDS: &[OfficialProviderSeed] = &[
@@ -35,26 +34,6 @@ pub(crate) const OFFICIAL_SEEDS: &[OfficialProviderSeed] = &[
         icon_color: "#D4915D",
         // 空 env 让用户走 Claude CLI 默认认证流程
         settings_config_json: r#"{"env":{}}"#,
-    },
-    OfficialProviderSeed {
-        id: "codex-official",
-        app_type: AppType::Codex,
-        name: "OpenAI Official",
-        website_url: "https://chatgpt.com/codex",
-        icon: "openai",
-        icon_color: "#00A67E",
-        // 空 auth + 空 config 让用户走 ChatGPT Plus/Pro OAuth
-        settings_config_json: r#"{"auth":{},"config":""}"#,
-    },
-    OfficialProviderSeed {
-        id: "gemini-official",
-        app_type: AppType::Gemini,
-        name: "Google Official",
-        website_url: "https://ai.google.dev/",
-        icon: "gemini",
-        icon_color: "#4285F4",
-        // 空 env + 空 config 让用户走 Google OAuth
-        settings_config_json: r#"{"env":{},"config":{}}"#,
     },
 ];
 

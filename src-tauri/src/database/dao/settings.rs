@@ -8,6 +8,7 @@ use rusqlite::params;
 
 impl Database {
     const LEGACY_COMMON_CONFIG_MIGRATED_KEY: &'static str = "common_config_legacy_migrated_v1";
+    const CLAUDE_ONLY_CLEANUP_KEY: &'static str = "claude_only_cleanup_v1";
 
     fn config_snippet_cleared_key(app_type: &str) -> String {
         format!("common_config_{app_type}_cleared")
@@ -54,6 +55,81 @@ impl Database {
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
         Ok(())
+    }
+
+    pub fn apply_claude_only_cleanup(&self) -> Result<bool, AppError> {
+        if self
+            .get_bool_flag(Self::CLAUDE_ONLY_CLEANUP_KEY)
+            .unwrap_or(false)
+        {
+            return Ok(false);
+        }
+
+        if let Err(e) = self.backup_database_file() {
+            log::warn!("Failed to back up database before Claude-only cleanup: {e}");
+        }
+
+        let mut conn = lock_conn!(self.conn);
+        let tx = conn
+            .transaction()
+            .map_err(|e| AppError::Database(e.to_string()))?;
+
+        tx.execute_batch(
+            "DELETE FROM provider_endpoints WHERE app_type <> 'claude';
+             DELETE FROM providers WHERE app_type <> 'claude';
+             DELETE FROM prompts WHERE app_type <> 'claude';
+             DELETE FROM provider_health WHERE app_type <> 'claude';
+             DELETE FROM proxy_config WHERE app_type NOT IN ('claude', 'claude_desktop');
+             DELETE FROM proxy_request_logs WHERE app_type NOT IN ('claude', 'claude_desktop');
+             DELETE FROM stream_check_logs WHERE app_type NOT IN ('claude', 'claude_desktop');
+             DELETE FROM usage_daily_rollups WHERE app_type NOT IN ('claude', 'claude_desktop');
+             DELETE FROM proxy_live_backup WHERE app_type NOT IN ('claude', 'claude_desktop');
+             UPDATE mcp_servers
+                SET enabled_codex = 0,
+                    enabled_gemini = 0,
+                    enabled_opencode = 0;
+             DELETE FROM mcp_servers WHERE enabled_claude = 0;
+             UPDATE skills
+                SET enabled_codex = 0,
+                    enabled_gemini = 0,
+                    enabled_opencode = 0;
+             DELETE FROM skills WHERE enabled_claude = 0;
+             DELETE FROM settings
+              WHERE key = 'universal_providers'
+                 OR key = 'official_providers_seeded'
+                 OR key LIKE 'common_config_codex%'
+                 OR key LIKE 'common_config_gemini%'
+                 OR key LIKE 'common_config_opencode%'
+                 OR key LIKE 'common_config_openclaw%'
+                 OR key LIKE 'proxy_takeover_codex%'
+                 OR key LIKE 'proxy_takeover_gemini%'
+                 OR key LIKE 'proxy_takeover_opencode%'
+                 OR key LIKE 'proxy_takeover_openclaw%';
+             INSERT OR IGNORE INTO proxy_config (
+                app_type, max_retries,
+                streaming_first_byte_timeout, streaming_idle_timeout, non_streaming_timeout,
+                circuit_failure_threshold, circuit_success_threshold, circuit_timeout_seconds,
+                circuit_error_rate_threshold, circuit_min_requests
+             ) VALUES ('claude', 6, 90, 180, 600, 8, 3, 90, 0.7, 15);
+             INSERT OR IGNORE INTO proxy_config (
+                app_type, max_retries,
+                streaming_first_byte_timeout, streaming_idle_timeout, non_streaming_timeout,
+                circuit_failure_threshold, circuit_success_threshold, circuit_timeout_seconds,
+                circuit_error_rate_threshold, circuit_min_requests
+             ) VALUES ('claude_desktop', 6, 90, 180, 600, 8, 3, 90, 0.7, 15);",
+        )
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+        tx.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, 'true')",
+            params![Self::CLAUDE_ONLY_CLEANUP_KEY],
+        )
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+        tx.commit()
+            .map_err(|e| AppError::Database(e.to_string()))?;
+
+        Ok(true)
     }
 
     // --- 通用配置片段 (Common Config Snippet) ---
