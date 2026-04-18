@@ -114,7 +114,7 @@ pub async fn handle_claude_desktop_models(
                 "id": id,
                 "object": "model",
                 "created": 0,
-                "owned_by": "cc-switch"
+                "owned_by": "ykw-bridge"
             })
         }).collect::<Vec<_>>()
     })))
@@ -202,7 +202,7 @@ const OFFICIAL_SESSION_TITLE_PROMPT: &str = concat!(
     "<title>Update README with installation instructions</title>\n",
     "<title>Improve performance of data processing script</title>\n"
 );
-const TITLE_GENERATION_SKIP_HEADER: &str = "x-cc-switch-title-gen";
+const TITLE_GENERATION_SKIP_HEADER: &str = "x-ykw-bridge-title-gen";
 
 static TARGETED_SESSION_TITLE_SYNC_RUNNING: LazyLock<Mutex<HashSet<String>>> =
     LazyLock::new(|| Mutex::new(HashSet::new()));

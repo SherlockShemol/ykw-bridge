@@ -58,7 +58,7 @@ function renderNonTauriHint(): void {
       >
         <div style={{ maxWidth: "640px", lineHeight: 1.6 }}>
           <h1 style={{ fontSize: "24px", marginBottom: "12px" }}>
-            CC Switch needs the Tauri desktop runtime
+            YKW Bridge needs the Tauri desktop runtime
           </h1>
           <p style={{ marginBottom: "12px", color: "#d0d7de" }}>
             This page was opened in a regular browser, so backend commands are
@@ -76,11 +76,11 @@ function renderNonTauriHint(): void {
               overflowX: "auto",
             }}
           >
-            {`cd /Users/shemol/Code/claude-desktop-switch/cc-switch
+            {`cd /Users/shemol/Code/claude-desktop-switch/ykw-bridge
 pnpm dev`}
           </pre>
           <p style={{ marginTop: "12px", color: "#9da7b3" }}>
-            Use the CC Switch desktop window that Tauri opens, not the
+            Use the YKW Bridge desktop window that Tauri opens, not the
             `localhost:3000` browser tab.
           </p>
         </div>
@@ -96,7 +96,7 @@ pnpm dev`}
 async function handleConfigLoadError(
   payload: ConfigLoadErrorPayload | null,
 ): Promise<void> {
-  const path = payload?.path ?? "~/.cc-switch/config.json";
+  const path = payload?.path ?? "~/.ykw-bridge/config.json";
   const detail = payload?.error ?? "Unknown error";
 
   await message(
@@ -153,7 +153,7 @@ async function bootstrap() {
   ReactDOM.createRoot(document.getElementById("root")!).render(
     <React.StrictMode>
       <QueryClientProvider client={queryClient}>
-        <ThemeProvider defaultTheme="system" storageKey="cc-switch-theme">
+        <ThemeProvider defaultTheme="system" storageKey="ykw-bridge-theme">
           <UpdateProvider>
             <App />
             <Toaster />

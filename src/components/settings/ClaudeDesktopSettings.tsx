@@ -167,7 +167,7 @@ export function ClaudeDesktopSettings({
         })}
         description={t("settings.claudeDesktop.launchInterceptDescription", {
           defaultValue:
-            "Keep cc-switch running and normal Claude launches will be reopened with the managed profile.",
+            "Keep ykw-bridge running and normal Claude launches will be reopened with the managed profile.",
         })}
         checked={!!settings.claudeDesktopLaunchWatchdogEnabled}
         onCheckedChange={(value) =>
@@ -206,7 +206,7 @@ export function ClaudeDesktopSettings({
                 claudeDesktopProfileDir: event.target.value.trim() || undefined,
               })
             }
-            placeholder="~/.cc-switch/claude-desktop/profile"
+            placeholder="~/.ykw-bridge/claude-desktop/profile"
           />
         </div>
       </div>
@@ -254,7 +254,7 @@ export function ClaudeDesktopSettings({
         {settings.claudeDesktopLaunchWatchdogEnabled
           ? t("settings.claudeDesktop.launchInterceptHelp", {
               defaultValue:
-                "Keep cc-switch running in the background. Direct Claude launches may flash once while they are reopened in the managed profile.",
+                "Keep ykw-bridge running in the background. Direct Claude launches may flash once while they are reopened in the managed profile.",
             })
           : t("settings.claudeDesktop.launchShimUnsupportedHelp", {
               defaultValue:

@@ -24,13 +24,13 @@ const CONFIG_FILENAME: &str = "claude_desktop_config.json";
 const CERT_DIRNAME: &str = "certs";
 const SERVER_CERT_FILENAME: &str = "server.pem";
 const SERVER_KEY_FILENAME: &str = "server-key.pem";
-const CERT_COMMON_NAME: &str = "CC Switch Claude Desktop Local Gateway";
+const CERT_COMMON_NAME: &str = "YKW Bridge Claude Desktop Local Gateway";
 const LOCAL_SESSION_TITLE_MAX_CHARS: usize = 80;
 const LOCAL_SESSION_TITLE_SOURCE_AUTO: &str = "auto";
 const LOCAL_SESSION_TITLE_SOURCE_PROMPT: &str = "prompt";
 const LOCAL_SESSION_TITLE_RECENT_FALLBACK_MAX_AGE_MS: u64 = 5 * 60 * 1000;
-const LAUNCH_SHIM_MARKER: &str = "# cc-switch-claude-launch-shim";
-const LAUNCH_SHIM_BACKUP_SUFFIX: &str = ".cc-switch-original";
+const LAUNCH_SHIM_MARKER: &str = "# ykw-bridge-claude-launch-shim";
+const LAUNCH_SHIM_BACKUP_SUFFIX: &str = ".ykw-bridge-original";
 const CLAUDE_CODE_SESSION_BUCKET_DIRNAME: &str = "00000000-0000-4000-8000-000000000001";
 const GIT_WORKTREES_FILENAME: &str = "git-worktrees.json";
 
@@ -1592,7 +1592,7 @@ fn run_privileged_launch_shim_script(script: &str) -> Result<(), AppError> {
         }
         if detail.contains("Operation not permitted") {
             return Err(AppError::Message(
-                "macOS 仍阻止修改 Claude.app。请到 系统设置 > 隐私与安全性 > App Management，允许 cc-switch（以及你用来启动它的终端，如果是 dev 模式），然后重试 Install Launch Shim。".to_string(),
+                "macOS 仍阻止修改 Claude.app。请到 系统设置 > 隐私与安全性 > App Management，允许 ykw-bridge（以及你用来启动它的终端，如果是 dev 模式），然后重试 Install Launch Shim。".to_string(),
             ));
         }
         return Err(AppError::Message(format!(
