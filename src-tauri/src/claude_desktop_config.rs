@@ -12,8 +12,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 
-use crate::config::{get_app_config_dir, read_json_file, write_json_file};
+use crate::config::{get_app_config_dir, get_claude_config_dir, read_json_file, write_json_file};
 use crate::error::AppError;
 use crate::provider::Provider;
 
@@ -30,6 +31,8 @@ const LOCAL_SESSION_TITLE_SOURCE_PROMPT: &str = "prompt";
 const LOCAL_SESSION_TITLE_RECENT_FALLBACK_MAX_AGE_MS: u64 = 5 * 60 * 1000;
 const LAUNCH_SHIM_MARKER: &str = "# cc-switch-claude-launch-shim";
 const LAUNCH_SHIM_BACKUP_SUFFIX: &str = ".cc-switch-original";
+const CLAUDE_CODE_SESSION_BUCKET_DIRNAME: &str = "00000000-0000-4000-8000-000000000001";
+const GIT_WORKTREES_FILENAME: &str = "git-worktrees.json";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LocalSessionTitleLookupPreference {
@@ -123,9 +126,7 @@ fn claude_code_sessions_dir(profile_dir: &Path) -> PathBuf {
 }
 
 fn default_claude_projects_dir() -> Option<PathBuf> {
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .map(|home| home.join(".claude").join("projects"))
+    Some(get_claude_config_dir().join("projects"))
 }
 
 pub fn resolve_cert_dir() -> PathBuf {
@@ -140,6 +141,579 @@ pub fn resolve_server_cert_path() -> PathBuf {
 
 pub fn resolve_server_key_path() -> PathBuf {
     resolve_cert_dir().join(SERVER_KEY_FILENAME)
+}
+
+#[derive(Debug, Clone)]
+struct ClaudeCodeMirrorSession {
+    cli_session_id: String,
+    local_session_id: String,
+    cwd: String,
+    origin_cwd: String,
+    created_at: u64,
+    last_activity_at: u64,
+    title: Option<String>,
+    permission_mode: String,
+    model: String,
+    effort: String,
+    completed_turns: u64,
+    worktree_name: Option<String>,
+    worktree_path: Option<String>,
+    branch: Option<String>,
+    source_branch: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct ClaudeTranscriptRuntimeMeta {
+    permission_mode: Option<String>,
+    model: Option<String>,
+    git_branch: Option<String>,
+    completed_turns: u64,
+}
+
+#[derive(Debug, Clone)]
+struct InferredWorktreeMeta {
+    name: String,
+    path: String,
+    base_repo: String,
+    branch: String,
+    source_branch: String,
+}
+
+fn resolve_git_worktrees_path(profile_dir: &Path) -> PathBuf {
+    profile_dir.join(GIT_WORKTREES_FILENAME)
+}
+
+fn collect_claude_project_jsonl_paths(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), AppError> {
+    if !dir.exists() {
+        return Ok(());
+    }
+
+    for entry in fs::read_dir(dir).map_err(|e| AppError::io(dir, e))? {
+        let entry = entry.map_err(|e| AppError::io(dir, e))?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_claude_project_jsonl_paths(&path, out)?;
+        } else if path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.eq_ignore_ascii_case("jsonl"))
+            .unwrap_or(false)
+        {
+            out.push(path);
+        }
+    }
+
+    Ok(())
+}
+
+fn is_agent_transcript(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name.starts_with("agent-"))
+        .unwrap_or(false)
+}
+
+fn infer_session_id_from_transcript_filename(path: &Path) -> Option<String> {
+    path.file_stem()
+        .and_then(|stem| stem.to_str())
+        .map(|stem| stem.to_string())
+}
+
+fn parse_timestamp_value_to_ms(value: &Value) -> Option<u64> {
+    if let Some(ms) = value.as_u64() {
+        return Some(ms);
+    }
+
+    let raw = value.as_str()?.trim();
+    if raw.is_empty() {
+        return None;
+    }
+
+    if let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(raw) {
+        return Some(parsed.timestamp_millis().max(0) as u64);
+    }
+
+    raw.parse::<u64>().ok()
+}
+
+fn derive_claude_message_text(message: &Value) -> Option<String> {
+    extract_local_session_text_from_value(message).or_else(|| {
+        message
+            .as_object()
+            .and_then(|obj| obj.get("content"))
+            .and_then(extract_local_session_text_from_value)
+    })
+}
+
+fn derive_path_basename(raw: &str) -> Option<String> {
+    Path::new(raw)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn derive_local_code_session_id(cli_session_id: &str) -> String {
+    let mut bytes = [0u8; 16];
+    bytes.copy_from_slice(&Sha256::digest(cli_session_id.as_bytes())[..16]);
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+    format!(
+        "local_{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        bytes[0],
+        bytes[1],
+        bytes[2],
+        bytes[3],
+        bytes[4],
+        bytes[5],
+        bytes[6],
+        bytes[7],
+        bytes[8],
+        bytes[9],
+        bytes[10],
+        bytes[11],
+        bytes[12],
+        bytes[13],
+        bytes[14],
+        bytes[15]
+    )
+}
+
+fn infer_worktree_meta(cwd: &str, git_branch: Option<&str>) -> Option<InferredWorktreeMeta> {
+    let path = Path::new(cwd);
+    let components = path
+        .components()
+        .map(|component| component.as_os_str().to_string_lossy().to_string())
+        .collect::<Vec<_>>();
+
+    let marker_idx = components.windows(2).position(|pair| {
+        pair.first().map(String::as_str) == Some(".claude")
+            && pair.get(1).map(String::as_str) == Some("worktrees")
+    })?;
+    let worktree_name = components.get(marker_idx + 2)?.trim().to_string();
+    if worktree_name.is_empty() {
+        return None;
+    }
+
+    let mut base_repo = PathBuf::new();
+    for component in components.iter().take(marker_idx) {
+        base_repo.push(component);
+    }
+    let base_repo = base_repo.to_string_lossy().to_string();
+    if base_repo.trim().is_empty() {
+        return None;
+    }
+
+    let branch = git_branch
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| format!("claude/{worktree_name}"));
+
+    Some(InferredWorktreeMeta {
+        name: worktree_name,
+        path: cwd.to_string(),
+        base_repo,
+        branch,
+        source_branch: "main".to_string(),
+    })
+}
+
+fn default_claude_code_session_model() -> String {
+    let config = read_live_config().unwrap_or_else(|_| json!({}));
+    let fallback = config
+        .get("enterpriseConfig")
+        .and_then(|value| value.get("fallbackModels"))
+        .and_then(Value::as_object);
+
+    for key in ["model", "sonnetModel", "sonnet", "haikuModel", "haiku"] {
+        if let Some(model) = fallback
+            .and_then(|value| value.get(key))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return model.to_string();
+        }
+    }
+
+    "claude-sonnet-4-20250514".to_string()
+}
+
+fn parse_claude_code_mirror_session(
+    path: &Path,
+    default_model: &str,
+) -> Result<Option<ClaudeCodeMirrorSession>, AppError> {
+    if is_agent_transcript(path) {
+        return Ok(None);
+    }
+
+    let file = fs::File::open(path).map_err(|e| AppError::io(path, e))?;
+    let reader = BufReader::new(file);
+
+    let mut session_id: Option<String> = None;
+    let mut cwd: Option<String> = None;
+    let mut created_at: Option<u64> = None;
+    let mut last_activity_at: Option<u64> = None;
+    let mut first_user_message: Option<String> = None;
+    let mut custom_title: Option<String> = None;
+    let mut runtime = ClaudeTranscriptRuntimeMeta::default();
+
+    for line in reader.lines() {
+        let line = line.map_err(|e| AppError::io(path, e))?;
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let doc: Value = match serde_json::from_str(trimmed) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+
+        if session_id.is_none() {
+            session_id = doc
+                .get("sessionId")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned);
+        }
+        if cwd.is_none() {
+            cwd = doc
+                .get("cwd")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned);
+        }
+        if created_at.is_none() {
+            created_at = doc.get("timestamp").and_then(parse_timestamp_value_to_ms);
+        }
+        if let Some(ts) = doc.get("timestamp").and_then(parse_timestamp_value_to_ms) {
+            last_activity_at = Some(ts);
+        }
+        if runtime.permission_mode.is_none() {
+            runtime.permission_mode = doc
+                .get("permissionMode")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned);
+        }
+        if runtime.git_branch.is_none() {
+            runtime.git_branch = doc
+                .get("gitBranch")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned);
+        }
+
+        if doc.get("type").and_then(Value::as_str) == Some("custom-title") {
+            custom_title = doc
+                .get("customTitle")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned);
+        }
+
+        let Some(message) = doc.get("message") else {
+            continue;
+        };
+        let role = message
+            .get("role")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+
+        if runtime.model.is_none() {
+            runtime.model = message
+                .get("model")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+                .or_else(|| {
+                    doc.get("model")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(ToOwned::to_owned)
+                });
+        }
+
+        if role == "assistant" {
+            runtime.completed_turns = runtime.completed_turns.saturating_add(1);
+        }
+
+        if first_user_message.is_none() && role == "user" {
+            let text = derive_claude_message_text(message).unwrap_or_default();
+            let normalized = text.trim();
+            if !normalized.is_empty()
+                && !normalized.contains("<local-command-caveat>")
+                && !normalized.starts_with("<command-name>")
+            {
+                first_user_message = Some(normalized.to_string());
+            }
+        }
+    }
+
+    let Some(cli_session_id) =
+        session_id.or_else(|| infer_session_id_from_transcript_filename(path))
+    else {
+        return Ok(None);
+    };
+    let Some(cwd) = cwd
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(None);
+    };
+
+    let title = custom_title
+        .or(first_user_message)
+        .map(|value| truncate_local_session_title(&value))
+        .filter(|value| !value.is_empty())
+        .or_else(|| derive_path_basename(&cwd).map(|value| truncate_local_session_title(&value)));
+
+    let created_at = created_at.unwrap_or_else(current_unix_time_ms);
+    let last_activity_at = last_activity_at.unwrap_or(created_at);
+    let worktree_meta = infer_worktree_meta(&cwd, runtime.git_branch.as_deref());
+    let origin_cwd = worktree_meta
+        .as_ref()
+        .map(|meta| meta.base_repo.clone())
+        .unwrap_or_else(|| cwd.clone());
+
+    Ok(Some(ClaudeCodeMirrorSession {
+        local_session_id: derive_local_code_session_id(&cli_session_id),
+        cli_session_id,
+        cwd: cwd.clone(),
+        origin_cwd,
+        created_at,
+        last_activity_at,
+        title,
+        permission_mode: runtime
+            .permission_mode
+            .unwrap_or_else(|| "default".to_string()),
+        model: runtime.model.unwrap_or_else(|| default_model.to_string()),
+        effort: "medium".to_string(),
+        completed_turns: runtime.completed_turns,
+        worktree_name: worktree_meta.as_ref().map(|meta| meta.name.clone()),
+        worktree_path: worktree_meta.as_ref().map(|meta| meta.path.clone()),
+        branch: worktree_meta.as_ref().map(|meta| meta.branch.clone()),
+        source_branch: worktree_meta.map(|meta| meta.source_branch),
+    }))
+}
+
+fn collect_claude_code_mirror_sessions(
+    projects_dir: &Path,
+) -> Result<Vec<ClaudeCodeMirrorSession>, AppError> {
+    let default_model = default_claude_code_session_model();
+    let mut files = Vec::new();
+    collect_claude_project_jsonl_paths(projects_dir, &mut files)?;
+
+    let mut sessions = Vec::new();
+    for path in files {
+        if let Some(session) = parse_claude_code_mirror_session(&path, &default_model)? {
+            sessions.push(session);
+        }
+    }
+
+    sessions.sort_by(|left, right| {
+        right
+            .last_activity_at
+            .cmp(&left.last_activity_at)
+            .then_with(|| left.cli_session_id.cmp(&right.cli_session_id))
+    });
+    Ok(sessions)
+}
+
+fn infer_code_sessions_namespace(profile_dir: &Path) -> Option<String> {
+    let local_agent_root = local_agent_sessions_dir(profile_dir);
+    if local_agent_root.exists() {
+        for entry in fs::read_dir(&local_agent_root)
+            .map_err(|e| AppError::io(&local_agent_root, e))
+            .ok()?
+            .flatten()
+        {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name == "skills-plugin" {
+                continue;
+            }
+            if path.join(CLAUDE_CODE_SESSION_BUCKET_DIRNAME).is_dir() {
+                return Some(name);
+            }
+        }
+    }
+
+    let code_root = claude_code_sessions_dir(profile_dir);
+    if !code_root.exists() {
+        return None;
+    }
+
+    for entry in fs::read_dir(&code_root).ok()?.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name == CLAUDE_CODE_SESSION_BUCKET_DIRNAME {
+            return None;
+        }
+        if path.join(CLAUDE_CODE_SESSION_BUCKET_DIRNAME).is_dir() {
+            return Some(name);
+        }
+    }
+
+    None
+}
+
+fn prepare_claude_code_session_bucket(profile_dir: &Path) -> Result<PathBuf, AppError> {
+    let namespace = infer_code_sessions_namespace(profile_dir);
+    let code_root = claude_code_sessions_dir(profile_dir);
+    if code_root.exists() {
+        fs::remove_dir_all(&code_root).map_err(|e| AppError::io(&code_root, e))?;
+    }
+
+    let bucket = match namespace {
+        Some(namespace) => code_root
+            .join(namespace)
+            .join(CLAUDE_CODE_SESSION_BUCKET_DIRNAME),
+        None => code_root.join(CLAUDE_CODE_SESSION_BUCKET_DIRNAME),
+    };
+    fs::create_dir_all(&bucket).map_err(|e| AppError::io(&bucket, e))?;
+    Ok(bucket)
+}
+
+fn build_claude_code_session_doc(session: &ClaudeCodeMirrorSession) -> Value {
+    let mut doc = serde_json::Map::new();
+    doc.insert(
+        "sessionId".to_string(),
+        Value::String(session.local_session_id.clone()),
+    );
+    doc.insert(
+        "cliSessionId".to_string(),
+        Value::String(session.cli_session_id.clone()),
+    );
+    doc.insert("cwd".to_string(), Value::String(session.cwd.clone()));
+    doc.insert(
+        "originCwd".to_string(),
+        Value::String(session.origin_cwd.clone()),
+    );
+    doc.insert(
+        "createdAt".to_string(),
+        Value::Number(serde_json::Number::from(session.created_at)),
+    );
+    doc.insert(
+        "lastActivityAt".to_string(),
+        Value::Number(serde_json::Number::from(session.last_activity_at)),
+    );
+    doc.insert("model".to_string(), Value::String(session.model.clone()));
+    doc.insert("effort".to_string(), Value::String(session.effort.clone()));
+    doc.insert(
+        "completedTurns".to_string(),
+        Value::Number(serde_json::Number::from(session.completed_turns)),
+    );
+    doc.insert("isArchived".to_string(), Value::Bool(false));
+    doc.insert(
+        "permissionMode".to_string(),
+        Value::String(session.permission_mode.clone()),
+    );
+    doc.insert(
+        "remoteMcpServersConfig".to_string(),
+        Value::Array(Vec::new()),
+    );
+
+    if let Some(title) = session.title.as_ref() {
+        doc.insert("title".to_string(), Value::String(title.clone()));
+        doc.insert("titleSource".to_string(), Value::String("auto".to_string()));
+    }
+    if let Some(worktree_path) = session.worktree_path.as_ref() {
+        doc.insert(
+            "worktreePath".to_string(),
+            Value::String(worktree_path.clone()),
+        );
+    }
+    if let Some(worktree_name) = session.worktree_name.as_ref() {
+        doc.insert(
+            "worktreeName".to_string(),
+            Value::String(worktree_name.clone()),
+        );
+    }
+    if let Some(source_branch) = session.source_branch.as_ref() {
+        doc.insert(
+            "sourceBranch".to_string(),
+            Value::String(source_branch.clone()),
+        );
+    }
+    if let Some(branch) = session.branch.as_ref() {
+        doc.insert("branch".to_string(), Value::String(branch.clone()));
+    }
+
+    Value::Object(doc)
+}
+
+fn write_git_worktrees_index(
+    profile_dir: &Path,
+    sessions: &[ClaudeCodeMirrorSession],
+) -> Result<(), AppError> {
+    let mut worktrees = serde_json::Map::new();
+
+    for session in sessions {
+        let (Some(worktree_name), Some(worktree_path), Some(branch), Some(source_branch)) = (
+            session.worktree_name.as_ref(),
+            session.worktree_path.as_ref(),
+            session.branch.as_ref(),
+            session.source_branch.as_ref(),
+        ) else {
+            continue;
+        };
+
+        worktrees.insert(
+            session.local_session_id.clone(),
+            json!({
+                "name": worktree_name,
+                "path": worktree_path,
+                "sessionId": session.local_session_id,
+                "baseRepo": session.origin_cwd,
+                "branch": branch,
+                "sourceBranch": source_branch,
+                "createdAt": session.created_at,
+            }),
+        );
+    }
+
+    write_json_file(
+        &resolve_git_worktrees_path(profile_dir),
+        &json!({ "worktrees": worktrees }),
+    )
+}
+
+fn sync_claude_code_sessions_in_profile(
+    profile_dir: &Path,
+    projects_dir: &Path,
+) -> Result<(), AppError> {
+    let sessions = collect_claude_code_mirror_sessions(projects_dir)?;
+    let bucket = prepare_claude_code_session_bucket(profile_dir)?;
+
+    for session in &sessions {
+        let path = bucket.join(format!("{}.json", session.local_session_id));
+        let doc = build_claude_code_session_doc(session);
+        write_json_file(&path, &doc)?;
+    }
+
+    write_git_worktrees_index(profile_dir, &sessions)?;
+    Ok(())
+}
+
+pub fn sync_claude_code_sessions() -> Result<(), AppError> {
+    let profile_dir = resolve_profile_dir();
+    let projects_dir =
+        default_claude_projects_dir().unwrap_or_else(|| get_claude_config_dir().join("projects"));
+    sync_claude_code_sessions_in_profile(&profile_dir, &projects_dir)
 }
 
 fn is_local_session_json(path: &Path) -> bool {
@@ -1865,6 +2439,8 @@ pub fn launch_app() -> Result<(), AppError> {
             return activate_claude_app();
         }
 
+        sync_claude_code_sessions()?;
+
         let mut command = Command::new(&binary_path);
         if !launch_shim_installed_for(&binary_path) {
             command.arg("-3p").env("CLAUDE_USER_DATA_DIR", &profile_dir);
@@ -2549,6 +3125,152 @@ lo0: flags=8049<UP,LOOPBACK,RUNNING,MULTICAST> mtu 16384
         .expect("lookup should work");
 
         assert!(matches!(lookup, LocalSessionTitleLookup::NotFound));
+    }
+
+    #[test]
+    fn derive_local_code_session_id_is_stable_and_uuid_shaped() {
+        let first = derive_local_code_session_id("cli-session-123");
+        let second = derive_local_code_session_id("cli-session-123");
+        let third = derive_local_code_session_id("cli-session-456");
+
+        assert_eq!(first, second);
+        assert_ne!(first, third);
+        assert!(first.starts_with("local_"));
+        assert_eq!(
+            first.len(),
+            "local_12345678-1234-1234-1234-123456789abc".len()
+        );
+    }
+
+    #[test]
+    fn sync_claude_code_sessions_rebuilds_desktop_index_from_cli_projects() {
+        let temp = tempdir().expect("tempdir");
+        let profile_dir = temp.path().join("profile");
+        let projects_dir = temp.path().join("projects");
+        let local_agent_bucket = profile_dir
+            .join("local-agent-mode-sessions")
+            .join("org")
+            .join(CLAUDE_CODE_SESSION_BUCKET_DIRNAME);
+        let stale_bucket = profile_dir
+            .join("claude-code-sessions")
+            .join("stale")
+            .join(CLAUDE_CODE_SESSION_BUCKET_DIRNAME);
+
+        fs::create_dir_all(&local_agent_bucket).expect("create local agent bucket");
+        fs::create_dir_all(&stale_bucket).expect("create stale bucket");
+        fs::create_dir_all(projects_dir.join("demo-project")).expect("create projects dir");
+        fs::write(stale_bucket.join("local_stale.json"), "{}").expect("write stale session");
+        write_json_file(
+            &resolve_git_worktrees_path(&profile_dir),
+            &json!({
+                "worktrees": {
+                    "local_stale": {
+                        "name": "stale"
+                    }
+                }
+            }),
+        )
+        .expect("write stale git worktrees");
+
+        fs::write(
+            projects_dir.join("demo-project").join("cli-session-123.jsonl"),
+            concat!(
+                "{\"type\":\"user\",\"sessionId\":\"cli-session-123\",\"cwd\":\"/tmp/app/.claude/worktrees/hopeful-hugle\",\"timestamp\":\"2026-04-18T08:00:00Z\",\"permissionMode\":\"acceptEdits\",\"gitBranch\":\"claude/hopeful-hugle\",\"message\":{\"role\":\"user\",\"content\":\"请帮我重构登录流程\"}}\n",
+                "{\"type\":\"assistant\",\"sessionId\":\"cli-session-123\",\"cwd\":\"/tmp/app/.claude/worktrees/hopeful-hugle\",\"timestamp\":\"2026-04-18T08:01:00Z\",\"message\":{\"role\":\"assistant\",\"model\":\"claude-sonnet-4-6\",\"content\":\"好的\"}}\n",
+                "{\"type\":\"custom-title\",\"sessionId\":\"cli-session-123\",\"customTitle\":\"重构登录流程\"}\n"
+            ),
+        )
+        .expect("write worktree transcript");
+        fs::write(
+            projects_dir.join("demo-project").join("cli-session-456.jsonl"),
+            concat!(
+                "{\"type\":\"user\",\"sessionId\":\"cli-session-456\",\"cwd\":\"/tmp/plain-project\",\"timestamp\":\"2026-04-18T09:00:00Z\",\"permissionMode\":\"default\",\"message\":{\"role\":\"user\",\"content\":\"你好\"}}\n",
+                "{\"type\":\"assistant\",\"sessionId\":\"cli-session-456\",\"cwd\":\"/tmp/plain-project\",\"timestamp\":\"2026-04-18T09:01:00Z\",\"message\":{\"role\":\"assistant\",\"content\":\"你好，有什么我可以帮忙的？\"}}\n"
+            ),
+        )
+        .expect("write plain transcript");
+
+        sync_claude_code_sessions_in_profile(&profile_dir, &projects_dir).expect("sync sessions");
+
+        let bucket = profile_dir
+            .join("claude-code-sessions")
+            .join("org")
+            .join(CLAUDE_CODE_SESSION_BUCKET_DIRNAME);
+        assert!(bucket.is_dir(), "expected mirrored bucket to be created");
+        assert!(
+            !stale_bucket.exists(),
+            "stale claude-code-sessions bucket should be removed"
+        );
+
+        let worktree_local_id = derive_local_code_session_id("cli-session-123");
+        let plain_local_id = derive_local_code_session_id("cli-session-456");
+        let worktree_doc =
+            read_json_file::<Value>(&bucket.join(format!("{worktree_local_id}.json")))
+                .expect("read mirrored worktree session");
+        let plain_doc = read_json_file::<Value>(&bucket.join(format!("{plain_local_id}.json")))
+            .expect("read mirrored plain session");
+
+        assert_eq!(
+            worktree_doc.get("cliSessionId").and_then(Value::as_str),
+            Some("cli-session-123")
+        );
+        assert_eq!(
+            worktree_doc.get("title").and_then(Value::as_str),
+            Some("重构登录流程")
+        );
+        assert_eq!(
+            worktree_doc.get("permissionMode").and_then(Value::as_str),
+            Some("acceptEdits")
+        );
+        assert_eq!(
+            worktree_doc.get("model").and_then(Value::as_str),
+            Some("claude-sonnet-4-6")
+        );
+        assert_eq!(
+            worktree_doc.get("completedTurns").and_then(Value::as_u64),
+            Some(1)
+        );
+        assert_eq!(
+            worktree_doc.get("originCwd").and_then(Value::as_str),
+            Some("/tmp/app")
+        );
+        assert_eq!(
+            worktree_doc.get("worktreeName").and_then(Value::as_str),
+            Some("hopeful-hugle")
+        );
+        assert_eq!(
+            worktree_doc.get("worktreePath").and_then(Value::as_str),
+            Some("/tmp/app/.claude/worktrees/hopeful-hugle")
+        );
+        assert_eq!(
+            worktree_doc.get("branch").and_then(Value::as_str),
+            Some("claude/hopeful-hugle")
+        );
+
+        assert_eq!(
+            plain_doc.get("cliSessionId").and_then(Value::as_str),
+            Some("cli-session-456")
+        );
+        assert_eq!(
+            plain_doc.get("originCwd").and_then(Value::as_str),
+            Some("/tmp/plain-project")
+        );
+        assert!(plain_doc.get("worktreePath").is_none());
+        assert_eq!(plain_doc.get("title").and_then(Value::as_str), Some("你好"));
+
+        let worktrees = read_json_file::<Value>(&resolve_git_worktrees_path(&profile_dir))
+            .expect("read rebuilt git worktrees");
+        let worktrees_obj = worktrees
+            .get("worktrees")
+            .and_then(Value::as_object)
+            .expect("worktrees object");
+        assert_eq!(
+            worktrees_obj.len(),
+            1,
+            "only worktree sessions should be indexed"
+        );
+        assert!(worktrees_obj.contains_key(&worktree_local_id));
+        assert!(!worktrees_obj.contains_key("local_stale"));
     }
 
     #[test]
