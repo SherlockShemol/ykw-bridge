@@ -496,8 +496,8 @@ mod tests {
 
     #[test]
     fn parse_provider_app_rejects_unsupported_non_claude_apps() {
-        let err =
-            parse_provider_app("legacy_non_claude").expect_err("unsupported app should be rejected");
+        let err = parse_provider_app("legacy_non_claude")
+            .expect_err("unsupported app should be rejected");
         assert!(
             err.contains("仅支持 claude 或 claude_desktop"),
             "unexpected error message: {err}"

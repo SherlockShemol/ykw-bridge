@@ -782,7 +782,12 @@ fn claude_only_cleanup_prunes_non_claude_runtime_state() {
         .expect("insert claude prompt");
         conn.execute(
             "INSERT INTO prompts (id, app_type, name, content) VALUES (?1, ?2, ?3, ?4)",
-            params!["legacy-prompt", LEGACY_NON_CLAUDE_APP_A, "Legacy Prompt", "world"],
+            params![
+                "legacy-prompt",
+                LEGACY_NON_CLAUDE_APP_A,
+                "Legacy Prompt",
+                "world"
+            ],
         )
         .expect("insert legacy non-Claude prompt");
         conn.execute(
@@ -903,10 +908,7 @@ fn claude_only_cleanup_prunes_non_claude_runtime_state() {
             |r| r.get(0),
         )
         .expect("count legacy non-Claude mcp");
-    assert_eq!(
-        removed_app_mcp, 0,
-        "non-Claude MCP rows should be removed"
-    );
+    assert_eq!(removed_app_mcp, 0, "non-Claude MCP rows should be removed");
 
     let removed_app_skill: i64 = conn
         .query_row(
@@ -915,10 +917,7 @@ fn claude_only_cleanup_prunes_non_claude_runtime_state() {
             |r| r.get(0),
         )
         .expect("count legacy non-Claude skill");
-    assert_eq!(
-        removed_app_skill, 0,
-        "non-Claude skills should be removed"
-    );
+    assert_eq!(removed_app_skill, 0, "non-Claude skills should be removed");
 
     let universal_setting: Option<String> = conn
         .query_row(

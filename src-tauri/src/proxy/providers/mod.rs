@@ -37,22 +37,27 @@ pub use claude::{
 /// 区分不同供应商的具体实现方式，决定认证和请求处理逻辑。
 /// 比 AppType 更细粒度，支持同一 AppType 下的多种变体。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
 pub enum ProviderType {
     /// Anthropic 官方 API (x-api-key + anthropic-version)
+    #[serde(rename = "claude")]
     Claude,
     /// Claude 中转服务 (仅 Bearer 认证，无 x-api-key)
+    #[serde(rename = "claude_auth")]
     ClaudeAuth,
     /// OpenRouter（已支持 Claude Code 兼容接口，默认透传；保留旧转换逻辑备用）
+    #[serde(rename = "openrouter")]
     OpenRouter,
     /// GitHub Copilot (OAuth + Copilot Token，需要 Anthropic ↔ OpenAI 转换)
+    #[serde(rename = "github_copilot")]
     GitHubCopilot,
     /// OpenAI Codex (ChatGPT Plus/Pro OAuth，需要 Anthropic ↔ Responses API 转换)
+    #[serde(rename = "codex_oauth")]
     CodexOAuth,
     /// OpenAI 兼容中转服务（Bearer 认证，需要 Anthropic ↔ OpenAI 格式转换）
     ///
     /// 适用于仅支持 OpenAI Chat Completions 或 Responses API 的中转服务。
     /// 自动将 Claude Messages API 请求转换为 OpenAI 格式，并路由到正确的端点。
+    #[serde(rename = "openai_proxy")]
     OpenAIProxy,
 }
 
@@ -67,6 +72,7 @@ impl ProviderType {
         match self {
             ProviderType::GitHubCopilot => true,
             ProviderType::CodexOAuth => true,
+            ProviderType::OpenAIProxy => true,
             ProviderType::OpenRouter => false,
             _ => false,
         }
@@ -80,6 +86,7 @@ impl ProviderType {
             ProviderType::OpenRouter => "https://openrouter.ai/api",
             ProviderType::GitHubCopilot => "https://api.githubcopilot.com",
             ProviderType::CodexOAuth => "https://chatgpt.com/backend-api/codex",
+            ProviderType::OpenAIProxy => "https://api.openai.com/v1",
         }
     }
 
@@ -98,6 +105,9 @@ impl ProviderType {
                     if meta.provider_type.as_deref() == Some("codex_oauth") {
                         return ProviderType::CodexOAuth;
                     }
+                    if meta.provider_type.as_deref() == Some("openai_proxy") {
+                        return ProviderType::OpenAIProxy;
+                    }
                 }
 
                 // 检测 base_url 是否为 GitHub Copilot
@@ -110,6 +120,12 @@ impl ProviderType {
                     if base_url.contains("openrouter.ai") {
                         return ProviderType::OpenRouter;
                     }
+                }
+                if matches!(
+                    get_claude_api_format(provider),
+                    "openai_chat" | "openai_responses"
+                ) {
+                    return ProviderType::OpenAIProxy;
                 }
                 // 检测是否为中转服务（仅 Bearer 认证）
                 // 注意：ProviderMeta 没有直接的 auth_mode 字段，
@@ -145,6 +161,7 @@ impl ProviderType {
             ProviderType::OpenRouter => "openrouter",
             ProviderType::GitHubCopilot => "github_copilot",
             ProviderType::CodexOAuth => "codex_oauth",
+            ProviderType::OpenAIProxy => "openai_proxy",
         }
     }
 }
@@ -167,6 +184,7 @@ impl std::str::FromStr for ProviderType {
                 Ok(ProviderType::GitHubCopilot)
             }
             "codex_oauth" | "codex-oauth" | "codexoauth" => Ok(ProviderType::CodexOAuth),
+            "openai_proxy" | "openai-proxy" | "openaiproxy" => Ok(ProviderType::OpenAIProxy),
             _ => Err(format!("Invalid provider type: {s}")),
         }
     }
@@ -187,7 +205,8 @@ pub fn get_adapter_for_provider_type(provider_type: &ProviderType) -> Box<dyn Pr
         | ProviderType::ClaudeAuth
         | ProviderType::OpenRouter
         | ProviderType::GitHubCopilot
-        | ProviderType::CodexOAuth => Box::new(ClaudeAdapter::new()),
+        | ProviderType::CodexOAuth
+        | ProviderType::OpenAIProxy => Box::new(ClaudeAdapter::new()),
     }
 }
 
@@ -220,6 +239,7 @@ mod tests {
         assert!(!ProviderType::OpenRouter.needs_transform());
         assert!(ProviderType::GitHubCopilot.needs_transform());
         assert!(ProviderType::CodexOAuth.needs_transform());
+        assert!(ProviderType::OpenAIProxy.needs_transform());
     }
 
     #[test]
@@ -243,6 +263,10 @@ mod tests {
         assert_eq!(
             ProviderType::CodexOAuth.default_endpoint(),
             "https://chatgpt.com/backend-api/codex"
+        );
+        assert_eq!(
+            ProviderType::OpenAIProxy.default_endpoint(),
+            "https://api.openai.com/v1"
         );
     }
 
@@ -284,6 +308,10 @@ mod tests {
             "codex-oauth".parse::<ProviderType>().unwrap(),
             ProviderType::CodexOAuth
         );
+        assert_eq!(
+            "openai_proxy".parse::<ProviderType>().unwrap(),
+            ProviderType::OpenAIProxy
+        );
         assert!("invalid".parse::<ProviderType>().is_err());
     }
 
@@ -294,6 +322,7 @@ mod tests {
         assert_eq!(ProviderType::OpenRouter.as_str(), "openrouter");
         assert_eq!(ProviderType::GitHubCopilot.as_str(), "github_copilot");
         assert_eq!(ProviderType::CodexOAuth.as_str(), "codex_oauth");
+        assert_eq!(ProviderType::OpenAIProxy.as_str(), "openai_proxy");
     }
 
     #[test]
@@ -313,6 +342,9 @@ mod tests {
 
         let deserialized: ProviderType = serde_json::from_str("\"codex_oauth\"").unwrap();
         assert_eq!(deserialized, ProviderType::CodexOAuth);
+
+        let deserialized: ProviderType = serde_json::from_str("\"openai_proxy\"").unwrap();
+        assert_eq!(deserialized, ProviderType::OpenAIProxy);
     }
 
     #[test]
@@ -367,6 +399,20 @@ mod tests {
     }
 
     #[test]
+    fn test_from_app_type_openai_proxy() {
+        let provider = create_provider(json!({
+            "env": {
+                "ANTHROPIC_BASE_URL": "https://integrate.api.nvidia.com",
+                "ANTHROPIC_AUTH_TOKEN": "sk-test"
+            },
+            "api_format": "openai_chat"
+        }));
+
+        let provider_type = ProviderType::from_app_type_and_config(&AppType::Claude, &provider);
+        assert_eq!(provider_type, ProviderType::OpenAIProxy);
+    }
+
+    #[test]
     fn test_get_adapter_for_provider_type() {
         let adapter = get_adapter_for_provider_type(&ProviderType::Claude);
         assert_eq!(adapter.name(), "Claude");
@@ -381,6 +427,9 @@ mod tests {
         assert_eq!(adapter.name(), "Claude");
 
         let adapter = get_adapter_for_provider_type(&ProviderType::CodexOAuth);
+        assert_eq!(adapter.name(), "Claude");
+
+        let adapter = get_adapter_for_provider_type(&ProviderType::OpenAIProxy);
         assert_eq!(adapter.name(), "Claude");
     }
 }

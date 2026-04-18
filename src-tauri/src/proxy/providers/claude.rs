@@ -157,6 +157,7 @@ impl ClaudeAdapter {
     /// - GitHubCopilot: meta.provider_type 为 github_copilot 或 base_url 包含 githubcopilot.com
     /// - CodexOAuth: meta.provider_type 为 codex_oauth
     /// - OpenRouter: base_url 包含 openrouter.ai
+    /// - OpenAIProxy: meta.provider_type 为 openai_proxy，或 api_format 为 OpenAI 兼容格式
     /// - ClaudeAuth: auth_mode 为 bearer_only
     /// - Claude: 默认 Anthropic 官方
     pub fn provider_type(&self, provider: &Provider) -> ProviderType {
@@ -173,6 +174,11 @@ impl ClaudeAdapter {
         // 检测 OpenRouter
         if self.is_openrouter(provider) {
             return ProviderType::OpenRouter;
+        }
+
+        // 检测 OpenAI 兼容中转
+        if self.is_openai_proxy(provider) {
+            return ProviderType::OpenAIProxy;
         }
 
         // 检测 ClaudeAuth (仅 Bearer 认证)
@@ -218,6 +224,20 @@ impl ClaudeAdapter {
             return base_url.contains("openrouter.ai");
         }
         false
+    }
+
+    /// 检测是否为 OpenAI 兼容中转
+    fn is_openai_proxy(&self, provider: &Provider) -> bool {
+        if let Some(meta) = provider.meta.as_ref() {
+            if meta.provider_type.as_deref() == Some("openai_proxy") {
+                return true;
+            }
+        }
+
+        matches!(
+            self.get_api_format(provider),
+            "openai_chat" | "openai_responses"
+        )
     }
 
     /// 获取 API 格式
@@ -389,7 +409,7 @@ impl ProviderAdapter for ClaudeAdapter {
         }
 
         let strategy = match provider_type {
-            ProviderType::OpenRouter => AuthStrategy::Bearer,
+            ProviderType::OpenRouter | ProviderType::OpenAIProxy => AuthStrategy::Bearer,
             ProviderType::ClaudeAuth => AuthStrategy::ClaudeAuth,
             _ => AuthStrategy::Anthropic,
         };
@@ -684,6 +704,22 @@ mod tests {
     }
 
     #[test]
+    fn test_extract_auth_openai_proxy() {
+        let adapter = ClaudeAdapter::new();
+        let provider = create_provider(json!({
+            "env": {
+                "ANTHROPIC_BASE_URL": "https://integrate.api.nvidia.com",
+                "ANTHROPIC_AUTH_TOKEN": "sk-openai-proxy-key"
+            },
+            "api_format": "openai_chat"
+        }));
+
+        let auth = adapter.extract_auth(&provider).unwrap();
+        assert_eq!(auth.api_key, "sk-openai-proxy-key");
+        assert_eq!(auth.strategy, AuthStrategy::Bearer);
+    }
+
+    #[test]
     fn test_provider_type_detection() {
         let adapter = ClaudeAdapter::new();
 
@@ -704,6 +740,19 @@ mod tests {
             }
         }));
         assert_eq!(adapter.provider_type(&openrouter), ProviderType::OpenRouter);
+
+        // OpenAI-compatible proxy
+        let openai_proxy = create_provider(json!({
+            "env": {
+                "ANTHROPIC_BASE_URL": "https://integrate.api.nvidia.com",
+                "ANTHROPIC_AUTH_TOKEN": "sk-test"
+            },
+            "api_format": "openai_chat"
+        }));
+        assert_eq!(
+            adapter.provider_type(&openai_proxy),
+            ProviderType::OpenAIProxy
+        );
 
         // ClaudeAuth
         let claude_auth = create_provider(json!({
