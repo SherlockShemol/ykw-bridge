@@ -913,16 +913,17 @@ impl RequestForwarder {
             Some(api_format) => super::providers::claude_api_format_needs_transform(api_format),
             None => adapter.needs_transform(provider),
         };
+        let normalized_endpoint = normalize_claude_proxy_endpoint(endpoint);
         let (effective_endpoint, passthrough_query) =
             if needs_transform && adapter.name() == "Claude" {
                 let api_format = resolved_claude_api_format
                     .as_deref()
                     .unwrap_or_else(|| super::providers::get_claude_api_format(provider));
-                rewrite_claude_transform_endpoint(endpoint, api_format, is_copilot)
+                rewrite_claude_transform_endpoint(&normalized_endpoint, api_format, is_copilot)
             } else {
                 (
-                    endpoint.to_string(),
-                    split_endpoint_and_query(endpoint)
+                    normalized_endpoint.clone(),
+                    split_endpoint_and_query(&normalized_endpoint)
                         .1
                         .map(ToString::to_string),
                 )
@@ -1627,6 +1628,21 @@ fn split_endpoint_and_query(endpoint: &str) -> (&str, Option<&str>) {
         .map_or((endpoint, None), |(path, query)| (path, Some(query)))
 }
 
+fn normalize_claude_proxy_endpoint(endpoint: &str) -> String {
+    let (path, query) = split_endpoint_and_query(endpoint);
+    let normalized_path = match path {
+        "/claude/v1/messages"
+        | "/claude-desktop/v1/messages"
+        | "/claude_desktop/v1/messages" => "/v1/messages",
+        _ => path,
+    };
+
+    match query {
+        Some(query) if !query.is_empty() => format!("{normalized_path}?{query}"),
+        _ => normalized_path.to_string(),
+    }
+}
+
 fn strip_beta_query(query: Option<&str>) -> Option<String> {
     let filtered = query.map(|query| {
         query
@@ -1824,6 +1840,22 @@ mod tests {
 
         assert_eq!(endpoint, "/v1/responses?x-id=1");
         assert_eq!(passthrough_query.as_deref(), Some("x-id=1"));
+    }
+
+    #[test]
+    fn normalize_claude_proxy_endpoint_rewrites_prefixed_routes() {
+        assert_eq!(
+            normalize_claude_proxy_endpoint("/claude/v1/messages?beta=true"),
+            "/v1/messages?beta=true"
+        );
+        assert_eq!(
+            normalize_claude_proxy_endpoint("/claude-desktop/v1/messages?beta=true"),
+            "/v1/messages?beta=true"
+        );
+        assert_eq!(
+            normalize_claude_proxy_endpoint("/claude_desktop/v1/messages?beta=true"),
+            "/v1/messages?beta=true"
+        );
     }
 
     #[test]
