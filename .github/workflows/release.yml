@@ -269,26 +269,52 @@ jobs:
           set -euo pipefail
           ls -la release-assets
 
-      - name: Upload Release Assets
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: ${{ env.APP_NAME }} ${{ github.ref_name }}
-          prerelease: true
-          body: |
-            ## ${{ env.APP_NAME }} ${{ github.ref_name }}
-
-            Claude Code + Claude Desktop 专版管理工具
-
-            ### 下载
-
-            - **macOS**: `${{ env.RELEASE_ASSET_PREFIX }}-${{ github.ref_name }}-macOS.dmg`（若已生成）或 `${{ env.RELEASE_ASSET_PREFIX }}-${{ github.ref_name }}-macOS.zip`
-            - **Windows**: `${{ env.RELEASE_ASSET_PREFIX }}-${{ github.ref_name }}-Windows.msi`（安装版）或 `${{ env.RELEASE_ASSET_PREFIX }}-${{ github.ref_name }}-Windows-Portable.zip`（绿色版）
-            - **Linux (x86_64)**: `${{ env.RELEASE_ASSET_PREFIX }}-${{ github.ref_name }}-Linux-x86_64.AppImage` / `.deb` / `.rpm`
-            - **Linux (ARM64)**: `${{ env.RELEASE_ASSET_PREFIX }}-${{ github.ref_name }}-Linux-arm64.AppImage` / `.deb` / `.rpm`
-
-            ---
-            当前 GitHub Release 以可下载安装包为主，不依赖自动更新签名或 Apple 公证。
-          files: release-assets/*
+      - name: Create or update GitHub Release
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          TAG="${GITHUB_REF_NAME}"
+          TITLE="${APP_NAME} ${TAG}"
+          NOTES_FILE="$(mktemp)"
+          trap 'rm -f "$NOTES_FILE"' EXIT
+
+          cat > "$NOTES_FILE" <<EOF
+          ## ${APP_NAME} ${TAG}
+
+          Claude Code + Claude Desktop 专版管理工具
+
+          ### 下载
+
+          - **macOS**: \`${RELEASE_ASSET_PREFIX}-${TAG}-macOS.dmg\`（若已生成）或 \`${RELEASE_ASSET_PREFIX}-${TAG}-macOS.zip\`
+          - **Windows**: \`${RELEASE_ASSET_PREFIX}-${TAG}-Windows.msi\`（安装版）或 \`${RELEASE_ASSET_PREFIX}-${TAG}-Windows-Portable.zip\`（绿色版）
+          - **Linux (x86_64)**: \`${RELEASE_ASSET_PREFIX}-${TAG}-Linux-x86_64.AppImage\` / \`.deb\` / \`.rpm\`
+          - **Linux (ARM64)**: \`${RELEASE_ASSET_PREFIX}-${TAG}-Linux-arm64.AppImage\` / \`.deb\` / \`.rpm\`
+
+          ---
+          当前 GitHub Release 以可下载安装包为主，不依赖自动更新签名或 Apple 公证。
+          EOF
+
+          release_id="$(
+            gh api --paginate "/repos/${GITHUB_REPOSITORY}/releases" \
+              --jq ".[] | select(.tag_name == \"${TAG}\") | .id" \
+              | head -n 1
+          )"
+
+          if [ -n "${release_id}" ]; then
+            echo "Release for ${TAG} already exists (id=${release_id}), updating metadata"
+            gh release edit "${TAG}" \
+              --title "${TITLE}" \
+              --notes-file "${NOTES_FILE}" \
+              --prerelease
+          else
+            echo "Creating release for ${TAG}"
+            gh release create "${TAG}" \
+              --title "${TITLE}" \
+              --notes-file "${NOTES_FILE}" \
+              --prerelease
+          fi
+
+          gh release upload "${TAG}" release-assets/* --clobber
