@@ -32,6 +32,63 @@ interface ConfigLoadErrorPayload {
   error?: string;
 }
 
+function hasTauriRuntime(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof (window as typeof window & { __TAURI_INTERNALS__?: unknown })
+      .__TAURI_INTERNALS__ !== "undefined"
+  );
+}
+
+function renderNonTauriHint(): void {
+  ReactDOM.createRoot(document.getElementById("root")!).render(
+    <React.StrictMode>
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "24px",
+          background: "#0f1115",
+          color: "#f5f7fa",
+          fontFamily:
+            '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+        }}
+      >
+        <div style={{ maxWidth: "640px", lineHeight: 1.6 }}>
+          <h1 style={{ fontSize: "24px", marginBottom: "12px" }}>
+            CC Switch needs the Tauri desktop runtime
+          </h1>
+          <p style={{ marginBottom: "12px", color: "#d0d7de" }}>
+            This page was opened in a regular browser, so backend commands are
+            unavailable. That is why calls to Tauri `invoke(...)` fail.
+          </p>
+          <p style={{ marginBottom: "12px", color: "#d0d7de" }}>
+            Start the desktop app with:
+          </p>
+          <pre
+            style={{
+              margin: 0,
+              padding: "12px 14px",
+              background: "#161b22",
+              borderRadius: "8px",
+              overflowX: "auto",
+            }}
+          >
+            {`cd /Users/shemol/Code/claude-desktop-switch/cc-switch
+pnpm dev`}
+          </pre>
+          <p style={{ marginTop: "12px", color: "#9da7b3" }}>
+            Use the CC Switch desktop window that Tauri opens, not the
+            `localhost:3000` browser tab.
+          </p>
+        </div>
+      </div>
+    </React.StrictMode>,
+  );
+}
+
 /**
  * 处理配置加载失败：显示错误消息并强制退出应用
  * 不给用户"取消"选项，因为配置损坏时应用无法正常运行
@@ -62,15 +119,22 @@ async function handleConfigLoadError(
 
 // 监听后端的配置加载错误事件：仅提醒用户并强制退出，不修改任何配置文件
 try {
-  void listen("configLoadError", async (evt) => {
-    await handleConfigLoadError(evt.payload as ConfigLoadErrorPayload | null);
-  });
+  if (hasTauriRuntime()) {
+    void listen("configLoadError", async (evt) => {
+      await handleConfigLoadError(evt.payload as ConfigLoadErrorPayload | null);
+    });
+  }
 } catch (e) {
   // 忽略事件订阅异常（例如在非 Tauri 环境下）
   console.error("订阅 configLoadError 事件失败", e);
 }
 
 async function bootstrap() {
+  if (!hasTauriRuntime()) {
+    renderNonTauriHint();
+    return;
+  }
+
   // 启动早期主动查询后端初始化错误，避免事件竞态
   try {
     const initError = (await invoke(
