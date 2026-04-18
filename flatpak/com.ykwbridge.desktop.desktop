@@ -2,7 +2,7 @@
 Type=Application
 Name=YKW Bridge
 Comment=All-in-One Assistant for Claude Workflows
-Exec=cc-switch
+Exec=ykw-bridge
 Icon=com.ykwbridge.desktop
 Terminal=false
 Categories=Utility;Development;

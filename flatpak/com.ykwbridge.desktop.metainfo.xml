@@ -17,7 +17,7 @@
 
   <launchable type="desktop-id">com.ykwbridge.desktop.desktop</launchable>
   <provides>
-    <binary>cc-switch</binary>
+    <binary>ykw-bridge</binary>
   </provides>
 
   <url type="homepage">https://github.com/SherlockShemol/ykw-bridge</url>

@@ -4,7 +4,7 @@ runtime: org.gnome.Platform
 runtime-version: '46'
 sdk: org.gnome.Sdk
 
-command: cc-switch
+command: ykw-bridge
 
 finish-args:
   - --share=ipc

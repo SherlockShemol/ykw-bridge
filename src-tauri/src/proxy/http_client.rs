@@ -293,15 +293,15 @@ fn proxy_points_to_loopback(value: &str) -> bool {
 
     // 检查是否指向 YKW Bridge 自己的代理端口
     // 只有指向自己的代理才需要跳过，避免递归
-    fn is_cc_switch_proxy_port(port: Option<u16>) -> bool {
-        let cc_switch_port = get_proxy_port();
-        port == Some(cc_switch_port)
+    fn is_app_proxy_port(port: Option<u16>) -> bool {
+        let app_proxy_port = get_proxy_port();
+        port == Some(app_proxy_port)
     }
 
     if let Ok(parsed) = url::Url::parse(value) {
         if let Some(host) = parsed.host_str() {
             // 只有当主机是 loopback 且端口是 YKW Bridge 的端口时才返回 true
-            return host_is_loopback(host) && is_cc_switch_proxy_port(parsed.port());
+            return host_is_loopback(host) && is_app_proxy_port(parsed.port());
         }
         return false;
     }
@@ -309,7 +309,7 @@ fn proxy_points_to_loopback(value: &str) -> bool {
     let with_scheme = format!("http://{value}");
     if let Ok(parsed) = url::Url::parse(&with_scheme) {
         if let Some(host) = parsed.host_str() {
-            return host_is_loopback(host) && is_cc_switch_proxy_port(parsed.port());
+            return host_is_loopback(host) && is_app_proxy_port(parsed.port());
         }
     }
 

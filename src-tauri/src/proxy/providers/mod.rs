@@ -49,6 +49,11 @@ pub enum ProviderType {
     GitHubCopilot,
     /// OpenAI Codex (ChatGPT Plus/Pro OAuth，需要 Anthropic ↔ Responses API 转换)
     CodexOAuth,
+    /// OpenAI 兼容中转服务（Bearer 认证，需要 Anthropic ↔ OpenAI 格式转换）
+    ///
+    /// 适用于仅支持 OpenAI Chat Completions 或 Responses API 的中转服务。
+    /// 自动将 Claude Messages API 请求转换为 OpenAI 格式，并路由到正确的端点。
+    OpenAIProxy,
 }
 
 impl ProviderType {
