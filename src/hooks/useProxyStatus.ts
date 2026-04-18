@@ -99,9 +99,7 @@ export function useProxyStatus() {
       invoke("set_proxy_takeover_for_app", { appType, enabled }),
     onSuccess: (_data, variables) => {
       const appLabel =
-        variables.appType === "claude"
-          ? "Claude"
-          : "Claude Desktop";
+        variables.appType === "claude" ? "Claude" : "Claude Desktop";
 
       toast.success(
         variables.enabled
@@ -180,9 +178,7 @@ export function useProxyStatus() {
     isRunning: status?.running || false,
     takeoverStatus,
     isTakeoverActive:
-      takeoverStatus?.claude ||
-      takeoverStatus?.claudeDesktop ||
-      false,
+      takeoverStatus?.claude || takeoverStatus?.claudeDesktop || false,
 
     // 启动/停止（总开关）
     startProxyServer: startProxyServerMutation.mutateAsync,

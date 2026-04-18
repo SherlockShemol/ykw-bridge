@@ -29,10 +29,7 @@ export function FailoverToggle({ className, activeApp }: FailoverToggleProps) {
     setEnabled.mutate({ appType: activeApp, enabled: checked });
   };
 
-  const appLabel =
-    activeApp === "claude"
-      ? "Claude"
-      : "Claude Desktop";
+  const appLabel = activeApp === "claude" ? "Claude" : "Claude Desktop";
 
   const tooltipText = isEnabled
     ? t("failover.tooltip.enabled", {

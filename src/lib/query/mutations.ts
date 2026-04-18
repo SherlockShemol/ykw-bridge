@@ -13,7 +13,9 @@ export const useAddProviderMutation = (appId: AppId) => {
   const { t } = useTranslation();
 
   return useMutation({
-    mutationFn: async (providerInput: Omit<Provider, "id"> & { providerKey?: string }) => {
+    mutationFn: async (
+      providerInput: Omit<Provider, "id"> & { providerKey?: string },
+    ) => {
       const id = generateUUID();
 
       const { providerKey: _providerKey, ...rest } = providerInput;

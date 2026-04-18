@@ -536,8 +536,7 @@ export function ProviderForm({
           : undefined,
       apiFormat: category !== "official" ? localApiFormat : undefined,
       apiKeyField:
-        category !== "official" &&
-        localApiKeyField !== "ANTHROPIC_AUTH_TOKEN"
+        category !== "official" && localApiKeyField !== "ANTHROPIC_AUTH_TOKEN"
           ? localApiKeyField
           : undefined,
       isFullUrl:
@@ -569,18 +568,14 @@ export function ProviderForm({
   const shouldShowSpeedTest =
     category !== "official" && category !== "cloud_provider";
 
-  const {
-    shouldShowApiKeyLink,
-    websiteUrl,
-    isPartner,
-    partnerPromotionKey,
-  } = useApiKeyLink({
-    appId,
-    category,
-    selectedPresetId,
-    presetEntries,
-    formWebsiteUrl: form.watch("websiteUrl") || "",
-  });
+  const { shouldShowApiKeyLink, websiteUrl, isPartner, partnerPromotionKey } =
+    useApiKeyLink({
+      appId,
+      category,
+      selectedPresetId,
+      presetEntries,
+      formWebsiteUrl: form.watch("websiteUrl") || "",
+    });
 
   // 使用端点测速候选 hook
   const speedTestEndpoints = useSpeedTestEndpoints({

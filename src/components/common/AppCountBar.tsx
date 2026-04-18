@@ -25,11 +25,7 @@ export const AppCountBar: React.FC<AppCountBarProps> = ({
           if (!config) return null;
 
           return (
-            <Badge
-              key={app}
-              variant="secondary"
-              className={config.badgeClass}
-            >
+            <Badge key={app} variant="secondary" className={config.badgeClass}>
               <span className="opacity-75">{config.label}:</span>
               <span className="font-bold ml-1">{counts[app] ?? 0}</span>
             </Badge>

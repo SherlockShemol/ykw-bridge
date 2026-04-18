@@ -47,10 +47,7 @@ export function ProxyToggle({ className, activeApp }: ProxyToggleProps) {
 
   const takeoverEnabled = getTakeoverStatusForApp(takeoverStatus, activeApp);
 
-  const appLabel =
-    activeApp === "claude"
-      ? "Claude"
-      : "Claude Desktop";
+  const appLabel = activeApp === "claude" ? "Claude" : "Claude Desktop";
 
   const tooltipText = takeoverEnabled
     ? isRunning

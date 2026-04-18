@@ -1631,9 +1631,9 @@ fn split_endpoint_and_query(endpoint: &str) -> (&str, Option<&str>) {
 fn normalize_claude_proxy_endpoint(endpoint: &str) -> String {
     let (path, query) = split_endpoint_and_query(endpoint);
     let normalized_path = match path {
-        "/claude/v1/messages"
-        | "/claude-desktop/v1/messages"
-        | "/claude_desktop/v1/messages" => "/v1/messages",
+        "/claude/v1/messages" | "/claude-desktop/v1/messages" | "/claude_desktop/v1/messages" => {
+            "/v1/messages"
+        }
         _ => path,
     };
 

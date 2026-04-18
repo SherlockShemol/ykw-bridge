@@ -199,10 +199,7 @@ export function ProxyTabContent({
                     />
                   </div>
                 </TabsContent>
-                <TabsContent
-                  value="claude_desktop"
-                  className="mt-4 space-y-6"
-                >
+                <TabsContent value="claude_desktop" className="mt-4 space-y-6">
                   <div className="space-y-4">
                     <div>
                       <h4 className="text-sm font-semibold">

@@ -110,10 +110,7 @@ export function useProviderActions(
           proxyRequiredReason = t("notifications.proxyReasonOpenAIResponses", {
             defaultValue: "使用 OpenAI Responses 接口格式",
           });
-        } else if (
-          provider.meta?.isFullUrl &&
-          activeApp === "claude"
-        ) {
+        } else if (provider.meta?.isFullUrl && activeApp === "claude") {
           proxyRequiredReason = t("notifications.proxyReasonFullUrl", {
             defaultValue: "开启了完整 URL 连接模式",
           });

@@ -74,9 +74,7 @@ export function ProxyPanel({
   const handleTakeoverChange = async (appType: string, enabled: boolean) => {
     try {
       const appLabel =
-        appType === "claude_desktop"
-          ? "Claude Desktop"
-          : "Claude";
+        appType === "claude_desktop" ? "Claude Desktop" : "Claude";
       await setTakeoverForApp.mutateAsync({ appType, enabled });
       toast.success(
         enabled

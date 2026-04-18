@@ -101,17 +101,13 @@ export function useDirectorySettings({
 
     const load = async () => {
       try {
-        const [
-          overrideRaw,
-          claudeDir,
-          defaultAppConfig,
-          defaultClaudeDir,
-        ] = await Promise.all([
-          settingsApi.getAppConfigDirOverride(),
-          settingsApi.getConfigDir("claude"),
-          computeDefaultAppConfigDir(),
-          computeDefaultClaudeConfigDir(),
-        ]);
+        const [overrideRaw, claudeDir, defaultAppConfig, defaultClaudeDir] =
+          await Promise.all([
+            settingsApi.getAppConfigDirOverride(),
+            settingsApi.getConfigDir("claude"),
+            computeDefaultAppConfigDir(),
+            computeDefaultClaudeConfigDir(),
+          ]);
 
         if (!active) return;
 
@@ -248,17 +244,14 @@ export function useDirectorySettings({
     updateDirectoryState("appConfig", undefined);
   }, [updateDirectoryState]);
 
-  const resetAllDirectories = useCallback(
-    (claudeDir?: string) => {
-      setAppConfigDir(initialAppConfigDirRef.current);
-      setResolvedDirs({
-        appConfig:
-          initialAppConfigDirRef.current ?? defaultsRef.current.appConfig,
-        claude: claudeDir ?? defaultsRef.current.claude,
-      });
-    },
-    [],
-  );
+  const resetAllDirectories = useCallback((claudeDir?: string) => {
+    setAppConfigDir(initialAppConfigDirRef.current);
+    setResolvedDirs({
+      appConfig:
+        initialAppConfigDirRef.current ?? defaultsRef.current.appConfig,
+      claude: claudeDir ?? defaultsRef.current.claude,
+    });
+  }, []);
 
   return {
     appConfigDir,

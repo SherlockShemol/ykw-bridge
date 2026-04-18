@@ -9,9 +9,7 @@ export interface AppConfig {
   badgeClass: string;
 }
 
-export const APP_IDS: AppId[] = [
-  "claude",
-];
+export const APP_IDS: AppId[] = ["claude"];
 
 /** App IDs shown in MCP & Skills panels */
 export const MCP_SKILLS_APP_IDS = [
