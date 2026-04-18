@@ -109,6 +109,9 @@ impl McpService {
             AppType::Claude => {
                 mcp::sync_single_server_to_claude(&Default::default(), &server.id, &server.server)?;
             }
+            AppType::ClaudeDesktop => {
+                log::debug!("Claude Desktop MCP support is not included in v1, skipping sync");
+            }
             AppType::Codex => {
                 // Codex uses TOML format, must use the correct function
                 mcp::sync_single_server_to_codex(&Default::default(), &server.id, &server.server)?;
@@ -148,6 +151,9 @@ impl McpService {
     fn remove_server_from_app(_state: &AppState, id: &str, app: &AppType) -> Result<(), AppError> {
         match app {
             AppType::Claude => mcp::remove_server_from_claude(id)?,
+            AppType::ClaudeDesktop => {
+                log::debug!("Claude Desktop MCP support is not included in v1, skipping remove");
+            }
             AppType::Codex => mcp::remove_server_from_codex(id)?,
             AppType::Gemini => mcp::remove_server_from_gemini(id)?,
             AppType::OpenCode => {

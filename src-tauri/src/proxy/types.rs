@@ -111,6 +111,8 @@ pub struct ProxyServerInfo {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ProxyTakeoverStatus {
     pub claude: bool,
+    #[serde(rename = "claudeDesktop")]
+    pub claude_desktop: bool,
     pub codex: bool,
     pub gemini: bool,
     pub opencode: bool,
@@ -142,7 +144,7 @@ pub struct ProviderHealth {
 /// Live 配置备份记录
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LiveBackup {
-    /// 应用类型 (claude/codex/gemini)
+    /// 应用类型 (claude/claude_desktop/codex/gemini)
     pub app_type: String,
     /// 原始配置 JSON
     pub original_config: String,
@@ -168,7 +170,7 @@ pub struct GlobalProxyConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppProxyConfig {
-    /// 应用类型 (claude/codex/gemini)
+    /// 应用类型 (claude/claude_desktop/codex/gemini)
     pub app_type: String,
     /// 该 app 代理启用开关
     pub enabled: bool,

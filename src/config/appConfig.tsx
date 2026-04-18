@@ -24,12 +24,12 @@ export const APP_IDS: AppId[] = [
 ];
 
 /** App IDs shown in MCP & Skills panels (excludes OpenClaw) */
-export const MCP_SKILLS_APP_IDS: AppId[] = [
+export const MCP_SKILLS_APP_IDS = [
   "claude",
   "codex",
   "gemini",
   "opencode",
-];
+] as const satisfies readonly AppId[];
 
 export const APP_ICON_MAP: Record<AppId, AppConfig> = {
   claude: {
@@ -39,6 +39,14 @@ export const APP_ICON_MAP: Record<AppId, AppConfig> = {
       "bg-orange-500/10 ring-1 ring-orange-500/20 hover:bg-orange-500/20 text-orange-600 dark:text-orange-400",
     badgeClass:
       "bg-orange-500/10 text-orange-700 dark:text-orange-300 hover:bg-orange-500/20 border-0 gap-1.5",
+  },
+  claude_desktop: {
+    label: "Claude Desktop",
+    icon: <ClaudeIcon size={14} />,
+    activeClass:
+      "bg-amber-500/10 ring-1 ring-amber-500/20 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300",
+    badgeClass:
+      "bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20 border-0 gap-1.5",
   },
   codex: {
     label: "Codex",

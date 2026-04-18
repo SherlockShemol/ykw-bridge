@@ -725,6 +725,7 @@ mod tests {
     use crate::error::AppError;
     use crate::provider::ProviderMeta;
     use crate::proxy::failover_switch::FailoverSwitchManager;
+    use crate::proxy::local_session_title_watcher::LocalSessionTitleWatcher;
     use crate::proxy::provider_router::ProviderRouter;
     use crate::proxy::types::{ProxyConfig, ProxyStatus};
     use rust_decimal::Decimal;
@@ -848,6 +849,7 @@ mod tests {
             provider_router: Arc::new(ProviderRouter::new(db.clone())),
             app_handle: None,
             failover_manager: Arc::new(FailoverSwitchManager::new(db)),
+            local_session_title_watcher: Arc::new(LocalSessionTitleWatcher::new()),
         }
     }
 

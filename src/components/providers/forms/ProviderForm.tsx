@@ -142,6 +142,7 @@ export function ProviderForm({
 }: ProviderFormProps) {
   const { t } = useTranslation();
   const isEditMode = Boolean(initialData);
+  const isClaudeLikeApp = appId === "claude" || appId === "claude_desktop";
   const queryClient = useQueryClient();
   const { data: settingsData } = useSettingsQuery();
   const showCommonConfigNotice =
@@ -182,7 +183,7 @@ export function ProviderForm({
   const [endpointAutoSelect, setEndpointAutoSelect] = useState<boolean>(
     () => initialData?.meta?.endpointAutoSelect ?? true,
   );
-  const supportsFullUrl = appId === "claude" || appId === "codex";
+  const supportsFullUrl = isClaudeLikeApp || appId === "codex";
   const [localIsFullUrl, setLocalIsFullUrl] = useState<boolean>(() => {
     if (!supportsFullUrl) return false;
     return initialData?.meta?.isFullUrl ?? false;
@@ -276,7 +277,7 @@ export function ProviderForm({
 
   const [localApiKeyField, setLocalApiKeyField] = useState<ClaudeApiKeyField>(
     () => {
-      if (appId !== "claude") return "ANTHROPIC_AUTH_TOKEN";
+      if (!isClaudeLikeApp) return "ANTHROPIC_AUTH_TOKEN";
       if (initialData?.meta?.apiKeyField) return initialData.meta.apiKeyField;
       // Infer from existing config env
       const env = (initialData?.settingsConfig as Record<string, unknown>)
@@ -299,12 +300,12 @@ export function ProviderForm({
     onConfigChange: handleSettingsConfigChange,
     selectedPresetId,
     category,
-    appType: appId,
-    apiKeyField: appId === "claude" ? localApiKeyField : undefined,
+    appType: isClaudeLikeApp ? "claude" : appId,
+    apiKeyField: isClaudeLikeApp ? localApiKeyField : undefined,
   });
 
   const { baseUrl, handleClaudeBaseUrlChange } = useBaseUrlState({
-    appType: appId,
+    appType: isClaudeLikeApp ? "claude" : appId,
     category,
     settingsConfig: form.getValues("settingsConfig"),
     codexConfig: "",
@@ -325,7 +326,7 @@ export function ProviderForm({
   });
 
   const [localApiFormat, setLocalApiFormat] = useState<ClaudeApiFormat>(() => {
-    if (appId !== "claude") return "anthropic";
+    if (!isClaudeLikeApp) return "anthropic";
     return initialData?.meta?.apiFormat ?? "anthropic";
   });
 
@@ -466,8 +467,8 @@ export function ProviderForm({
     handleTemplateValueChange,
     validateTemplateValues,
   } = useTemplateValues({
-    selectedPresetId: appId === "claude" ? selectedPresetId : null,
-    presetEntries: appId === "claude" ? presetEntries : [],
+    selectedPresetId: isClaudeLikeApp ? selectedPresetId : null,
+    presetEntries: isClaudeLikeApp ? presetEntries : [],
     settingsConfig: form.getValues("settingsConfig"),
     onConfigChange: handleSettingsConfigChange,
   });
@@ -483,7 +484,7 @@ export function ProviderForm({
   } = useCommonConfigSnippet({
     settingsConfig: form.getValues("settingsConfig"),
     onConfigChange: handleSettingsConfigChange,
-    initialData: appId === "claude" ? initialData : undefined,
+    initialData: isClaudeLikeApp ? initialData : undefined,
     initialEnabled:
       appId === "claude" ? initialData?.meta?.commonConfigEnabled : undefined,
     selectedPresetId: selectedPresetId ?? undefined,
@@ -716,7 +717,7 @@ export function ProviderForm({
   const [isCommonConfigModalOpen, setIsCommonConfigModalOpen] = useState(false);
 
   const handleSubmit = async (values: ProviderFormData) => {
-    if (appId === "claude" && templateValueEntries.length > 0) {
+    if (isClaudeLikeApp && templateValueEntries.length > 0) {
       const validation = validateTemplateValues();
       if (!validation.isValid && validation.missingField) {
         toast.error(
@@ -827,7 +828,7 @@ export function ProviderForm({
     }
 
     if (category !== "official" && category !== "cloud_provider") {
-      if (appId === "claude") {
+      if (isClaudeLikeApp) {
         if (!isCodexOauthProvider && !baseUrl.trim()) {
           toast.error(
             t("providerForm.endpointRequired", {
@@ -1078,11 +1079,9 @@ export function ProviderForm({
           ? pricingConfig.pricingModelSource
           : undefined,
       apiFormat:
-        appId === "claude" && category !== "official"
-          ? localApiFormat
-          : undefined,
+        isClaudeLikeApp && category !== "official" ? localApiFormat : undefined,
       apiKeyField:
-        appId === "claude" &&
+        isClaudeLikeApp &&
         category !== "official" &&
         localApiKeyField !== "ANTHROPIC_AUTH_TOKEN"
           ? localApiKeyField
@@ -1513,7 +1512,7 @@ export function ProviderForm({
             }
           />
 
-          {appId === "claude" && (
+          {isClaudeLikeApp && (
             <ClaudeFormFields
               providerId={providerId}
               shouldShowApiKey={
@@ -1815,6 +1814,29 @@ export function ProviderForm({
                   </FormItem>
                 )}
               />
+            </>
+          ) : appId === "claude_desktop" ? (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="settingsConfig">
+                  {t("provider.configJson")}
+                </Label>
+                <JsonEditor
+                  value={form.getValues("settingsConfig")}
+                  onChange={(config) => form.setValue("settingsConfig", config)}
+                  placeholder={`{
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://your-api-endpoint.com",
+    "ANTHROPIC_AUTH_TOKEN": "your-api-key-here",
+    "ANTHROPIC_MODEL": "claude-sonnet-4-20250514"
+  }
+}`}
+                  rows={14}
+                  showValidation={true}
+                  language="json"
+                />
+              </div>
+              {settingsConfigErrorField}
             </>
           ) : (
             <>

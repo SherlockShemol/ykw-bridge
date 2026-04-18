@@ -80,6 +80,7 @@ export function useApiKeyLink({
   return {
     shouldShowApiKeyLink:
       appId === "claude" ||
+      appId === "claude_desktop" ||
       appId === "codex" ||
       appId === "gemini" ||
       appId === "opencode"

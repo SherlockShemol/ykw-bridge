@@ -23,6 +23,7 @@ export function useProviderCategory({
   isEditMode,
   initialCategory,
 }: UseProviderCategoryProps) {
+  const isClaudeLikeApp = appId === "claude" || appId === "claude_desktop";
   const [category, setCategory] = useState<ProviderCategory | undefined>(
     // 编辑模式：使用 initialCategory
     isEditMode ? initialCategory : undefined,
@@ -58,7 +59,7 @@ export function useProviderCategory({
           preset.category || (preset.isOfficial ? "official" : undefined),
         );
       }
-    } else if (type === "claude" && appId === "claude") {
+    } else if (type === "claude" && isClaudeLikeApp) {
       const preset = providerPresets[index];
       if (preset) {
         setCategory(
@@ -76,7 +77,7 @@ export function useProviderCategory({
         setCategory(preset.category || undefined);
       }
     }
-  }, [appId, selectedPresetId, isEditMode, initialCategory]);
+  }, [appId, selectedPresetId, isEditMode, initialCategory, isClaudeLikeApp]);
 
   return { category, setCategory };
 }

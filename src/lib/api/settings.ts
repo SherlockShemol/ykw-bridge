@@ -18,6 +18,31 @@ export interface WebDavSyncResult {
   status: string;
 }
 
+export interface ClaudeDesktopStatus {
+  supported: boolean;
+  experimental: boolean;
+  appPath: string;
+  appExists: boolean;
+  binaryPath: string;
+  binaryExists: boolean;
+  profileDir: string;
+  configPath: string;
+  certificateInstalled: boolean;
+  certificatePath: string;
+  keyPath: string;
+  gatewayBaseUrl?: string | null;
+  managedConfigExists: boolean;
+  proxyRunning: boolean;
+}
+
+export interface ClaudeDesktopDoctor {
+  status: ClaudeDesktopStatus;
+  gatewayHealthy: boolean;
+  httpPortAvailable: boolean;
+  httpsPortAvailable: boolean;
+  blockers: string[];
+}
+
 export const settingsApi = {
   async get(): Promise<Settings> {
     return await invoke("get_settings");
@@ -57,6 +82,22 @@ export const settingsApi = {
 
   async getClaudeCodeConfigPath(): Promise<string> {
     return await invoke("get_claude_code_config_path");
+  },
+
+  async getClaudeDesktopStatus(): Promise<ClaudeDesktopStatus> {
+    return await invoke("get_claude_desktop_status");
+  },
+
+  async doctorClaudeDesktop(): Promise<ClaudeDesktopDoctor> {
+    return await invoke("doctor_claude_desktop");
+  },
+
+  async installClaudeDesktopCertificate(): Promise<ClaudeDesktopStatus> {
+    return await invoke("install_claude_desktop_certificate");
+  },
+
+  async launchClaudeDesktop(): Promise<ClaudeDesktopStatus> {
+    return await invoke("launch_claude_desktop");
   },
 
   async getAppConfigPath(): Promise<string> {

@@ -27,6 +27,7 @@ export function AppSwitcher({
   const iconSize = 20;
   const appIconName: Record<AppId, string> = {
     claude: "claude",
+    claude_desktop: "claude",
     codex: "openai",
     gemini: "gemini",
     opencode: "opencode",
@@ -34,6 +35,7 @@ export function AppSwitcher({
   };
   const appDisplayName: Record<AppId, string> = {
     claude: "Claude",
+    claude_desktop: "Claude Desktop",
     codex: "Codex",
     gemini: "Gemini",
     opencode: "OpenCode",
@@ -41,10 +43,7 @@ export function AppSwitcher({
   };
 
   // Filter apps based on visibility settings (default all visible)
-  const appsToShow = ALL_APPS.filter((app) => {
-    if (!visibleApps) return true;
-    return visibleApps[app];
-  });
+  const appsToShow = ALL_APPS.filter((app) => !visibleApps || visibleApps[app]);
 
   return (
     <div className="inline-flex bg-muted rounded-xl p-1 gap-1">

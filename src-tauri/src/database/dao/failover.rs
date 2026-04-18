@@ -19,6 +19,7 @@ pub struct FailoverQueueItem {
 impl Database {
     /// 获取故障转移队列（按 sort_index 排序）
     pub fn get_failover_queue(&self, app_type: &str) -> Result<Vec<FailoverQueueItem>, AppError> {
+        let app_type = crate::database::canonical_provider_app_type(app_type);
         let conn = lock_conn!(self.conn);
 
         let mut stmt = conn
@@ -59,6 +60,7 @@ impl Database {
 
     /// 添加供应商到故障转移队列
     pub fn add_to_failover_queue(&self, app_type: &str, provider_id: &str) -> Result<(), AppError> {
+        let app_type = crate::database::canonical_provider_app_type(app_type);
         let conn = lock_conn!(self.conn);
 
         conn.execute(
@@ -76,6 +78,7 @@ impl Database {
         app_type: &str,
         provider_id: &str,
     ) -> Result<(), AppError> {
+        let app_type = crate::database::canonical_provider_app_type(app_type);
         let conn = lock_conn!(self.conn);
 
         // 1. 从队列中移除
@@ -99,6 +102,7 @@ impl Database {
 
     /// 清空故障转移队列
     pub fn clear_failover_queue(&self, app_type: &str) -> Result<(), AppError> {
+        let app_type = crate::database::canonical_provider_app_type(app_type);
         let conn = lock_conn!(self.conn);
 
         conn.execute(
@@ -116,6 +120,7 @@ impl Database {
         app_type: &str,
         provider_id: &str,
     ) -> Result<bool, AppError> {
+        let app_type = crate::database::canonical_provider_app_type(app_type);
         let conn = lock_conn!(self.conn);
 
         let in_queue: bool = conn

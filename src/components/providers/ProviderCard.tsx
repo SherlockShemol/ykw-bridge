@@ -62,7 +62,7 @@ interface ProviderCardProps {
 /** 判断是否为官方供应商（无自定义 base URL / API key，直连官方 API） */
 function isOfficialProvider(provider: Provider, appId: AppId): boolean {
   const config = provider.settingsConfig as Record<string, any>;
-  if (appId === "claude") {
+  if (appId === "claude" || appId === "claude_desktop") {
     const baseUrl = config?.env?.ANTHROPIC_BASE_URL;
     return !baseUrl || (typeof baseUrl === "string" && baseUrl.trim() === "");
   }

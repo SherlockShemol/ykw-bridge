@@ -21,6 +21,13 @@ use super::gemini_auth::{
 };
 use super::normalize_claude_models_in_value;
 
+fn common_config_app_type(app_type: &AppType) -> &AppType {
+    match app_type {
+        AppType::ClaudeDesktop => &AppType::Claude,
+        _ => app_type,
+    }
+}
+
 pub(crate) fn sanitize_claude_settings_for_live(settings: &Value) -> Value {
     let mut v = settings.clone();
     if let Some(obj) = v.as_object_mut() {
@@ -42,6 +49,7 @@ pub(crate) fn provider_exists_in_live_config(
             .map(|providers| providers.contains_key(provider_id)),
         AppType::OpenClaw => crate::openclaw_config::get_providers()
             .map(|providers| providers.contains_key(provider_id)),
+        AppType::ClaudeDesktop => Ok(crate::claude_desktop_config::resolve_config_path().exists()),
         _ => Ok(false),
     }
 }
@@ -305,13 +313,14 @@ fn remove_toml_table_like(target: &mut dyn TableLike, source: &dyn TableLike) {
 }
 
 fn settings_contain_common_config(app_type: &AppType, settings: &Value, snippet: &str) -> bool {
+    let app_type = common_config_app_type(app_type);
     let trimmed = snippet.trim();
     if trimmed.is_empty() {
         return false;
     }
 
     match app_type {
-        AppType::Claude => match serde_json::from_str::<Value>(trimmed) {
+        AppType::Claude | AppType::ClaudeDesktop => match serde_json::from_str::<Value>(trimmed) {
             Ok(source) if source.is_object() => json_is_subset(settings, &source),
             _ => false,
         },
@@ -371,13 +380,14 @@ pub(crate) fn remove_common_config_from_settings(
     settings: &Value,
     snippet: &str,
 ) -> Result<Value, AppError> {
+    let app_type = common_config_app_type(app_type);
     let trimmed = snippet.trim();
     if trimmed.is_empty() {
         return Ok(settings.clone());
     }
 
     match app_type {
-        AppType::Claude => {
+        AppType::Claude | AppType::ClaudeDesktop => {
             let source = serde_json::from_str::<Value>(trimmed)
                 .map_err(|e| AppError::Message(format!("Invalid Claude common config: {e}")))?;
             let mut result = settings.clone();
@@ -424,13 +434,14 @@ fn apply_common_config_to_settings(
     settings: &Value,
     snippet: &str,
 ) -> Result<Value, AppError> {
+    let app_type = common_config_app_type(app_type);
     let trimmed = snippet.trim();
     if trimmed.is_empty() {
         return Ok(settings.clone());
     }
 
     match app_type {
-        AppType::Claude => {
+        AppType::Claude | AppType::ClaudeDesktop => {
             let source = serde_json::from_str::<Value>(trimmed)
                 .map_err(|e| AppError::Message(format!("Invalid Claude common config: {e}")))?;
             let mut result = settings.clone();
@@ -479,7 +490,7 @@ pub(crate) fn build_effective_settings_with_common_config(
     app_type: &AppType,
     provider: &Provider,
 ) -> Result<Value, AppError> {
-    let snippet = db.get_config_snippet(app_type.as_str())?;
+    let snippet = db.get_config_snippet(app_type.provider_storage_str())?;
     let mut effective_settings = provider.settings_config.clone();
 
     if provider_uses_common_config(app_type, provider, snippet.as_deref()) {
@@ -509,6 +520,18 @@ pub(crate) fn write_live_with_common_config(
     effective_provider.settings_config =
         build_effective_settings_with_common_config(db, app_type, provider)?;
 
+    if matches!(app_type, AppType::ClaudeDesktop) {
+        let proxy_config = futures::executor::block_on(db.get_global_proxy_config())?;
+        let gateway_secret = crate::settings::ensure_claude_desktop_gateway_secret()?;
+        crate::claude_desktop_config::write_provider_live_config(
+            &effective_provider,
+            &proxy_config.listen_address,
+            proxy_config.listen_port,
+            &gateway_secret,
+        )?;
+        return Ok(());
+    }
+
     write_live_snapshot(app_type, &effective_provider)
 }
 
@@ -518,7 +541,7 @@ pub(crate) fn strip_common_config_from_live_settings(
     provider: &Provider,
     live_settings: Value,
 ) -> Value {
-    let snippet = match db.get_config_snippet(app_type.as_str()) {
+    let snippet = match db.get_config_snippet(app_type.provider_storage_str()) {
         Ok(snippet) => snippet,
         Err(err) => {
             log::warn!(
@@ -566,7 +589,7 @@ pub(crate) fn normalize_provider_common_config_for_storage(
         return Ok(());
     }
 
-    let Some(snippet) = db.get_config_snippet(app_type.as_str())? else {
+    let Some(snippet) = db.get_config_snippet(app_type.provider_storage_str())? else {
         return Ok(());
     };
 
@@ -668,6 +691,18 @@ pub(crate) fn write_live_snapshot(app_type: &AppType, provider: &Provider) -> Re
             let path = get_claude_settings_path();
             let settings = sanitize_claude_settings_for_live(&provider.settings_config);
             write_json_file(&path, &settings)?;
+        }
+        AppType::ClaudeDesktop => {
+            let gateway_secret = crate::settings::ensure_claude_desktop_gateway_secret()?;
+            let config = crate::claude_desktop_config::build_live_config(
+                provider,
+                &crate::claude_desktop_config::gateway_base_url(
+                    &crate::proxy::types::ProxyConfig::default().listen_address,
+                    crate::proxy::types::ProxyConfig::default().listen_port,
+                ),
+                &gateway_secret,
+            );
+            crate::claude_desktop_config::write_live_config(&config)?;
         }
         AppType::Codex => {
             let obj = provider
@@ -898,6 +933,17 @@ pub fn sync_current_to_live(state: &AppState) -> Result<(), AppError> {
 /// Read current live settings for an app type
 pub fn read_live_settings(app_type: AppType) -> Result<Value, AppError> {
     match app_type {
+        AppType::ClaudeDesktop => {
+            let path = crate::claude_desktop_config::resolve_config_path();
+            if !path.exists() {
+                return Err(AppError::localized(
+                    "claude_desktop.live.missing",
+                    "Claude Desktop 配置文件不存在",
+                    "Claude Desktop configuration file is missing",
+                ));
+            }
+            crate::claude_desktop_config::read_live_config()
+        }
         AppType::Codex => {
             let auth_path = get_codex_auth_path();
             if !auth_path.exists() {
@@ -1008,6 +1054,17 @@ pub fn import_default_config(state: &AppState, app_type: AppType) -> Result<bool
     }
 
     let settings_config = match app_type {
+        AppType::ClaudeDesktop => {
+            let settings_path = crate::claude_desktop_config::resolve_config_path();
+            if !settings_path.exists() {
+                return Err(AppError::localized(
+                    "claude_desktop.live.missing",
+                    "Claude Desktop 配置文件不存在",
+                    "Claude Desktop configuration file is missing",
+                ));
+            }
+            read_json_file::<Value>(&settings_path)?
+        }
         AppType::Codex => {
             let auth_path = get_codex_auth_path();
             if !auth_path.exists() {

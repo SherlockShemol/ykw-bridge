@@ -40,6 +40,7 @@ export function AddProviderDialog({
   onSubmit,
 }: AddProviderDialogProps) {
   const { t } = useTranslation();
+  const isClaudeLikeApp = appId === "claude" || appId === "claude_desktop";
   // OpenCode and OpenClaw don't support universal providers
   const showUniversalTab = appId !== "opencode" && appId !== "openclaw";
   const [activeTab, setActiveTab] = useState<"app-specific" | "universal">(
@@ -127,7 +128,7 @@ export function AddProviderDialog({
         };
 
         if (values.presetId) {
-          if (appId === "claude") {
+          if (isClaudeLikeApp) {
             const presets = providerPresets;
             const presetIndex = parseInt(
               values.presetId.replace("claude-", ""),
@@ -173,7 +174,7 @@ export function AddProviderDialog({
           }
         }
 
-        if (appId === "claude") {
+        if (isClaudeLikeApp) {
           const env = parsedConfig.env as Record<string, any> | undefined;
           if (env?.ANTHROPIC_BASE_URL) {
             addUrl(env.ANTHROPIC_BASE_URL);
@@ -232,7 +233,7 @@ export function AddProviderDialog({
       await onSubmit(providerData);
       onOpenChange(false);
     },
-    [appId, onSubmit, onOpenChange],
+    [appId, isClaudeLikeApp, onSubmit, onOpenChange],
   );
 
   const footer =

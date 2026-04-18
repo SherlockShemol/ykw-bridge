@@ -15,12 +15,33 @@ const APP_CONFIG: Array<{
   id: AppId;
   icon: string;
   nameKey: string;
+  defaultName: string;
 }> = [
-  { id: "claude", icon: "claude", nameKey: "apps.claude" },
-  { id: "codex", icon: "openai", nameKey: "apps.codex" },
-  { id: "gemini", icon: "gemini", nameKey: "apps.gemini" },
-  { id: "opencode", icon: "opencode", nameKey: "apps.opencode" },
-  { id: "openclaw", icon: "openclaw", nameKey: "apps.openclaw" },
+  {
+    id: "claude",
+    icon: "claude",
+    nameKey: "apps.claude",
+    defaultName: "Claude",
+  },
+  { id: "codex", icon: "openai", nameKey: "apps.codex", defaultName: "Codex" },
+  {
+    id: "gemini",
+    icon: "gemini",
+    nameKey: "apps.gemini",
+    defaultName: "Gemini",
+  },
+  {
+    id: "opencode",
+    icon: "opencode",
+    nameKey: "apps.opencode",
+    defaultName: "OpenCode",
+  },
+  {
+    id: "openclaw",
+    icon: "openclaw",
+    nameKey: "apps.openclaw",
+    defaultName: "OpenClaw",
+  },
 ];
 
 export function AppVisibilitySettings({
@@ -29,16 +50,22 @@ export function AppVisibilitySettings({
 }: AppVisibilitySettingsProps) {
   const { t } = useTranslation();
 
-  const visibleApps: VisibleApps = settings.visibleApps ?? {
+  const rawVisibleApps: VisibleApps = settings.visibleApps ?? {
     claude: true,
+    claude_desktop: false,
     codex: true,
     gemini: true,
     opencode: true,
     openclaw: true,
   };
+  const visibleApps: VisibleApps = APP_CONFIG.some(
+    (app) => rawVisibleApps[app.id],
+  )
+    ? rawVisibleApps
+    : { ...rawVisibleApps, claude: true };
 
   // Count how many apps are currently visible
-  const visibleCount = Object.values(visibleApps).filter(Boolean).length;
+  const visibleCount = APP_CONFIG.filter((app) => visibleApps[app.id]).length;
 
   const handleToggle = (appId: AppId) => {
     const isCurrentlyVisible = visibleApps[appId];
@@ -76,9 +103,9 @@ export function AppVisibilitySettings({
               disabled={isDisabled}
               onClick={() => handleToggle(app.id)}
               icon={app.icon}
-              name={t(app.nameKey)}
+              name={t(app.nameKey, { defaultValue: app.defaultName })}
             >
-              {t(app.nameKey)}
+              {t(app.nameKey, { defaultValue: app.defaultName })}
             </AppButton>
           );
         })}

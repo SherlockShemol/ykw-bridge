@@ -931,7 +931,7 @@ base_url = "http://localhost:8080"
 
 impl ProviderService {
     fn normalize_provider_if_claude(app_type: &AppType, provider: &mut Provider) {
-        if matches!(app_type, AppType::Claude) {
+        if matches!(app_type, AppType::Claude | AppType::ClaudeDesktop) {
             let mut v = provider.settings_config.clone();
             if normalize_claude_models_in_value(&mut v) {
                 provider.settings_config = v;
@@ -967,11 +967,50 @@ impl ProviderService {
             .live_config_managed = Some(managed);
     }
 
+    fn shared_claude_peer(app_type: &AppType) -> Option<AppType> {
+        match app_type {
+            AppType::Claude => Some(AppType::ClaudeDesktop),
+            AppType::ClaudeDesktop => Some(AppType::Claude),
+            _ => None,
+        }
+    }
+
+    pub fn ensure_shared_claude_family(state: &AppState) -> Result<(), AppError> {
+        let _ = state;
+        Ok(())
+    }
+
+    fn mirror_shared_claude_provider(
+        state: &AppState,
+        app_type: &AppType,
+        provider: &Provider,
+    ) -> Result<(), AppError> {
+        let _ = (state, app_type, provider);
+        Ok(())
+    }
+
+    fn sync_shared_claude_current(
+        state: &AppState,
+        app_type: &AppType,
+        id: &str,
+    ) -> Result<(), AppError> {
+        let Some(peer) = Self::shared_claude_peer(app_type) else {
+            return Ok(());
+        };
+
+        state.db.set_current_provider(peer.as_str(), id)?;
+        crate::settings::set_current_provider(&peer, Some(id))?;
+        Self::sync_current_provider_for_app(state, peer)
+    }
+
     /// List all providers for an app type
     pub fn list(
         state: &AppState,
         app_type: AppType,
     ) -> Result<IndexMap<String, Provider>, AppError> {
+        if Self::shared_claude_peer(&app_type).is_some() {
+            Self::ensure_shared_claude_family(state)?;
+        }
         state.db.get_all_providers(app_type.as_str())
     }
 
@@ -987,6 +1026,9 @@ impl ProviderService {
         if app_type.is_additive_mode() {
             return Ok(String::new());
         }
+        if Self::shared_claude_peer(&app_type).is_some() {
+            Self::ensure_shared_claude_family(state)?;
+        }
         crate::settings::get_effective_current_provider(&state.db, &app_type)
             .map(|opt| opt.unwrap_or_default())
     }
@@ -998,6 +1040,9 @@ impl ProviderService {
         provider: Provider,
         add_to_live: bool,
     ) -> Result<bool, AppError> {
+        if Self::shared_claude_peer(&app_type).is_some() {
+            Self::ensure_shared_claude_family(state)?;
+        }
         let mut provider = provider;
         // Normalize Claude model keys
         Self::normalize_provider_if_claude(&app_type, &mut provider);
@@ -1037,6 +1082,13 @@ impl ProviderService {
             write_live_with_common_config(state.db.as_ref(), &app_type, &provider)?;
         }
 
+        Self::mirror_shared_claude_provider(state, &app_type, &provider)?;
+        if crate::settings::get_effective_current_provider(&state.db, &app_type)?.as_deref()
+            == Some(provider.id.as_str())
+        {
+            Self::sync_shared_claude_current(state, &app_type, &provider.id)?;
+        }
+
         Ok(true)
     }
 
@@ -1047,6 +1099,9 @@ impl ProviderService {
         original_id: Option<&str>,
         provider: Provider,
     ) -> Result<bool, AppError> {
+        if Self::shared_claude_peer(&app_type).is_some() {
+            Self::ensure_shared_claude_family(state)?;
+        }
         let mut provider = provider;
         let original_id = original_id.unwrap_or(provider.id.as_str()).to_string();
         let provider_id_changed = original_id != provider.id;
@@ -1226,12 +1281,28 @@ impl ProviderService {
                             .sync_claude_live_from_provider_while_proxy_active(&provider),
                     )
                     .map_err(|e| AppError::Message(format!("同步 Claude Live 配置失败: {e}")))?;
+                } else if matches!(app_type, AppType::ClaudeDesktop) {
+                    futures::executor::block_on(
+                        state
+                            .proxy_service
+                            .sync_claude_desktop_live_from_provider_while_proxy_active(&provider),
+                    )
+                    .map_err(|e| {
+                        AppError::Message(format!("同步 Claude Desktop Live 配置失败: {e}"))
+                    })?;
                 }
             } else {
                 write_live_with_common_config(state.db.as_ref(), &app_type, &provider)?;
                 // Sync MCP
                 McpService::sync_all_enabled(state)?;
             }
+        }
+
+        Self::mirror_shared_claude_provider(state, &app_type, &provider)?;
+        if crate::settings::get_effective_current_provider(&state.db, &app_type)?.as_deref()
+            == Some(provider.id.as_str())
+        {
+            Self::sync_shared_claude_current(state, &app_type, &provider.id)?;
         }
 
         Ok(true)
@@ -1242,6 +1313,9 @@ impl ProviderService {
     /// 同时检查本地 settings 和数据库的当前供应商，防止删除任一端正在使用的供应商。
     /// 对于累加模式应用（OpenCode, OpenClaw），可以随时删除任意供应商，同时从 live 配置中移除。
     pub fn delete(state: &AppState, app_type: AppType, id: &str) -> Result<(), AppError> {
+        if Self::shared_claude_peer(&app_type).is_some() {
+            Self::ensure_shared_claude_family(state)?;
+        }
         // Additive mode apps - no current provider concept
         if app_type.is_additive_mode() {
             // Single DB read shared across all additive-mode sub-paths below.
@@ -1299,7 +1373,21 @@ impl ProviderService {
             ));
         }
 
-        state.db.delete_provider(app_type.as_str(), id)
+        if let Some(peer) = Self::shared_claude_peer(&app_type) {
+            let peer_local_current = crate::settings::get_current_provider(&peer);
+            let peer_db_current = state.db.get_current_provider(peer.as_str())?;
+            if peer_local_current.as_deref() == Some(id) || peer_db_current.as_deref() == Some(id) {
+                return Err(AppError::Message(
+                    "无法删除当前正在使用的供应商".to_string(),
+                ));
+            }
+        }
+
+        state.db.delete_provider(app_type.as_str(), id)?;
+        if let Some(peer) = Self::shared_claude_peer(&app_type) {
+            state.db.delete_provider(peer.as_str(), id)?;
+        }
+        Ok(())
     }
 
     /// Remove provider from live config only (for additive mode apps like OpenCode, OpenClaw)
@@ -1373,6 +1461,9 @@ impl ProviderService {
     ///    d. Write target provider config to live files
     ///    e. Sync MCP configuration
     pub fn switch(state: &AppState, app_type: AppType, id: &str) -> Result<SwitchResult, AppError> {
+        if Self::shared_claude_peer(&app_type).is_some() {
+            Self::ensure_shared_claude_family(state)?;
+        }
         // Check if provider exists
         let providers = state.db.get_all_providers(app_type.as_str())?;
         let _provider = providers
@@ -1434,11 +1525,14 @@ impl ProviderService {
 
             // Note: No Live config write, no MCP sync
             // The proxy server will route requests to the new provider via is_current
+            Self::sync_shared_claude_current(state, &app_type, id)?;
             return Ok(SwitchResult::default());
         }
 
         // Normal mode: full switch with Live config write
-        Self::switch_normal(state, app_type, id, &providers)
+        let result = Self::switch_normal(state, app_type.clone(), id, &providers)?;
+        Self::sync_shared_claude_current(state, &app_type, id)?;
+        Ok(result)
     }
 
     /// Normal switch flow (non-proxy mode)
@@ -1567,6 +1661,9 @@ impl ProviderService {
         state: &AppState,
         app_type: AppType,
     ) -> Result<(), AppError> {
+        if Self::shared_claude_peer(&app_type).is_some() {
+            Self::ensure_shared_claude_family(state)?;
+        }
         if app_type.is_additive_mode() {
             return sync_current_provider_for_app_to_live(state, &app_type);
         }
@@ -1703,7 +1800,9 @@ impl ProviderService {
             .ok_or_else(|| AppError::Message(format!("Provider {current_id} not found")))?;
 
         match app_type {
-            AppType::Claude => Self::extract_claude_common_config(&provider.settings_config),
+            AppType::Claude | AppType::ClaudeDesktop => {
+                Self::extract_claude_common_config(&provider.settings_config)
+            }
             AppType::Codex => Self::extract_codex_common_config(&provider.settings_config),
             AppType::Gemini => Self::extract_gemini_common_config(&provider.settings_config),
             AppType::OpenCode => Self::extract_opencode_common_config(&provider.settings_config),
@@ -1717,7 +1816,9 @@ impl ProviderService {
         settings_config: &Value,
     ) -> Result<String, AppError> {
         match app_type {
-            AppType::Claude => Self::extract_claude_common_config(settings_config),
+            AppType::Claude | AppType::ClaudeDesktop => {
+                Self::extract_claude_common_config(settings_config)
+            }
             AppType::Codex => Self::extract_codex_common_config(settings_config),
             AppType::Gemini => Self::extract_gemini_common_config(settings_config),
             AppType::OpenCode => Self::extract_opencode_common_config(settings_config),
@@ -2012,7 +2113,7 @@ impl ProviderService {
 
     fn validate_provider_settings(app_type: &AppType, provider: &Provider) -> Result<(), AppError> {
         match app_type {
-            AppType::Claude => {
+            AppType::Claude | AppType::ClaudeDesktop => {
                 if !provider.settings_config.is_object() {
                     return Err(AppError::localized(
                         "provider.claude.settings.not_object",
@@ -2105,7 +2206,7 @@ impl ProviderService {
         app_type: &AppType,
     ) -> Result<(String, String), AppError> {
         match app_type {
-            AppType::Claude => {
+            AppType::Claude | AppType::ClaudeDesktop => {
                 let env = provider
                     .settings_config
                     .get("env")
@@ -2415,6 +2516,9 @@ impl ProviderService {
                 let claude_id = format!("universal-claude-{id}");
                 let _ = state.db.delete_provider("claude", &claude_id);
             }
+            let desktop_id = format!("universal-claude-desktop-{id}");
+            let _ = state.db.delete_provider("claude", &desktop_id);
+            let _ = state.db.delete_provider("claude_desktop", &desktop_id);
             if p.apps.codex {
                 let codex_id = format!("universal-codex-{id}");
                 let _ = state.db.delete_provider("codex", &codex_id);
@@ -2449,6 +2553,12 @@ impl ProviderService {
             let claude_id = format!("universal-claude-{id}");
             let _ = state.db.delete_provider("claude", &claude_id);
         }
+
+        // Claude Desktop now reuses Claude's provider/current-provider storage.
+        // Clean up the legacy standalone Desktop child provider if it exists.
+        let desktop_id = format!("universal-claude-desktop-{id}");
+        let _ = state.db.delete_provider("claude", &desktop_id);
+        let _ = state.db.delete_provider("claude_desktop", &desktop_id);
 
         // 同步到 Codex
         if let Some(mut codex_provider) = provider.to_codex_provider() {

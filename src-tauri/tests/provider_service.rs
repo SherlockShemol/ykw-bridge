@@ -588,6 +588,112 @@ fn switch_google_official_gemini_preserves_env_vars() {
 }
 
 #[test]
+fn provider_service_list_claude_desktop_reuses_claude_providers() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let _home = ensure_test_home();
+
+    let mut config = MultiAppConfig::default();
+    {
+        let manager = config
+            .get_manager_mut(&AppType::Claude)
+            .expect("claude manager");
+        manager.current = "shared-provider".to_string();
+        manager.providers.insert(
+            "shared-provider".to_string(),
+            Provider::with_id(
+                "shared-provider".to_string(),
+                "Shared Claude".to_string(),
+                json!({
+                    "env": { "ANTHROPIC_API_KEY": "shared-key" }
+                }),
+                None,
+            ),
+        );
+    }
+
+    let state = create_test_state_with_config(&config).expect("create test state");
+
+    let desktop_providers =
+        ProviderService::list(&state, AppType::ClaudeDesktop).expect("list desktop providers");
+    assert!(
+        desktop_providers.contains_key("shared-provider"),
+        "Claude Desktop should surface Claude providers from shared state"
+    );
+
+    let current = ProviderService::current(&state, AppType::ClaudeDesktop)
+        .expect("read shared desktop current provider");
+    assert_eq!(
+        current, "shared-provider",
+        "current provider should be shared"
+    );
+
+    let desktop_current = state
+        .db
+        .get_current_provider(AppType::ClaudeDesktop.as_str())
+        .expect("read desktop db current");
+    assert_eq!(
+        desktop_current.as_deref(),
+        Some("shared-provider"),
+        "desktop database current provider should be backfilled"
+    );
+}
+
+#[test]
+fn provider_service_update_claude_mirrors_to_claude_desktop() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let _home = ensure_test_home();
+
+    let mut config = MultiAppConfig::default();
+    {
+        let manager = config
+            .get_manager_mut(&AppType::Claude)
+            .expect("claude manager");
+        manager.current = "shared-provider".to_string();
+        manager.providers.insert(
+            "shared-provider".to_string(),
+            Provider::with_id(
+                "shared-provider".to_string(),
+                "Shared Claude".to_string(),
+                json!({
+                    "env": { "ANTHROPIC_API_KEY": "old-key" }
+                }),
+                None,
+            ),
+        );
+    }
+
+    let state = create_test_state_with_config(&config).expect("create test state");
+
+    let updated = Provider::with_id(
+        "shared-provider".to_string(),
+        "Shared Claude".to_string(),
+        json!({
+            "env": {
+                "ANTHROPIC_API_KEY": "new-key",
+                "ANTHROPIC_BASE_URL": "https://claude.example"
+            }
+        }),
+        None,
+    );
+
+    ProviderService::update(&state, AppType::Claude, None, updated.clone())
+        .expect("update shared Claude provider");
+
+    let desktop_provider = state
+        .db
+        .get_provider_by_id("shared-provider", AppType::ClaudeDesktop.as_str())
+        .expect("read mirrored desktop provider")
+        .expect("mirrored desktop provider should exist");
+
+    assert_eq!(
+        desktop_provider.settings_config, updated.settings_config,
+        "updating Claude should mirror the same provider config to Claude Desktop"
+    );
+}
+
+#[test]
 fn provider_service_switch_claude_updates_live_and_state() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
     reset_test_fs();
@@ -672,12 +778,37 @@ fn provider_service_switch_claude_updates_live_and_state() {
         "current provider updated"
     );
 
+    let desktop_current_id = state
+        .db
+        .get_current_provider(AppType::ClaudeDesktop.as_str())
+        .expect("get desktop current provider");
+    assert_eq!(
+        desktop_current_id.as_deref(),
+        Some("new-provider"),
+        "Claude Desktop current provider should track Claude"
+    );
+
     let legacy_provider = providers
         .get("old-provider")
         .expect("legacy provider still exists");
     assert_eq!(
         legacy_provider.settings_config, legacy_live,
         "previous provider should receive backfilled live config"
+    );
+
+    let desktop_provider = state
+        .db
+        .get_provider_by_id("new-provider", AppType::ClaudeDesktop.as_str())
+        .expect("read mirrored desktop provider")
+        .expect("mirrored desktop provider should exist");
+    assert_eq!(
+        desktop_provider
+            .settings_config
+            .get("env")
+            .and_then(|env| env.get("ANTHROPIC_API_KEY"))
+            .and_then(|key| key.as_str()),
+        Some("fresh-key"),
+        "Claude Desktop should reuse the same provider config after switch"
     );
 }
 

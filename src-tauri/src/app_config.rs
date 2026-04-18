@@ -22,6 +22,7 @@ impl McpApps {
     pub fn is_enabled_for(&self, app: &AppType) -> bool {
         match app {
             AppType::Claude => self.claude,
+            AppType::ClaudeDesktop => false,
             AppType::Codex => self.codex,
             AppType::Gemini => self.gemini,
             AppType::OpenCode => self.opencode,
@@ -33,6 +34,7 @@ impl McpApps {
     pub fn set_enabled_for(&mut self, app: &AppType, enabled: bool) {
         match app {
             AppType::Claude => self.claude = enabled,
+            AppType::ClaudeDesktop => {} // Claude Desktop v1 doesn't support MCP, ignore
             AppType::Codex => self.codex = enabled,
             AppType::Gemini => self.gemini = enabled,
             AppType::OpenCode => self.opencode = enabled,
@@ -82,6 +84,7 @@ impl SkillApps {
     pub fn is_enabled_for(&self, app: &AppType) -> bool {
         match app {
             AppType::Claude => self.claude,
+            AppType::ClaudeDesktop => false,
             AppType::Codex => self.codex,
             AppType::Gemini => self.gemini,
             AppType::OpenCode => self.opencode,
@@ -93,6 +96,7 @@ impl SkillApps {
     pub fn set_enabled_for(&mut self, app: &AppType, enabled: bool) {
         match app {
             AppType::Claude => self.claude = enabled,
+            AppType::ClaudeDesktop => {} // Claude Desktop v1 doesn't support Skills, ignore
             AppType::Codex => self.codex = enabled,
             AppType::Gemini => self.gemini = enabled,
             AppType::OpenCode => self.opencode = enabled,
@@ -241,6 +245,12 @@ pub struct McpRoot {
     /// 旧的分应用存储（v3.6.x 及以前，保留用于迁移）
     #[serde(default, skip_serializing_if = "McpConfig::is_empty")]
     pub claude: McpConfig,
+    #[serde(
+        default,
+        skip_serializing_if = "McpConfig::is_empty",
+        rename = "claude_desktop"
+    )]
+    pub claude_desktop: McpConfig,
     #[serde(default, skip_serializing_if = "McpConfig::is_empty")]
     pub codex: McpConfig,
     #[serde(default, skip_serializing_if = "McpConfig::is_empty")]
@@ -260,6 +270,7 @@ impl Default for McpRoot {
             servers: Some(HashMap::new()),
             // 旧结构保持空，仅用于反序列化旧配置时的迁移
             claude: McpConfig::default(),
+            claude_desktop: McpConfig::default(),
             codex: McpConfig::default(),
             gemini: McpConfig::default(),
             opencode: McpConfig::default(),
@@ -280,6 +291,8 @@ pub struct PromptConfig {
 pub struct PromptRoot {
     #[serde(default)]
     pub claude: PromptConfig,
+    #[serde(default, rename = "claude_desktop")]
+    pub claude_desktop: PromptConfig,
     #[serde(default)]
     pub codex: PromptConfig,
     #[serde(default)]
@@ -300,6 +313,7 @@ use crate::provider::ProviderManager;
 #[serde(rename_all = "lowercase")]
 pub enum AppType {
     Claude,
+    ClaudeDesktop,
     Codex,
     Gemini,
     OpenCode,
@@ -310,10 +324,22 @@ impl AppType {
     pub fn as_str(&self) -> &str {
         match self {
             AppType::Claude => "claude",
+            AppType::ClaudeDesktop => "claude_desktop",
             AppType::Codex => "codex",
             AppType::Gemini => "gemini",
             AppType::OpenCode => "opencode",
             AppType::OpenClaw => "openclaw",
+        }
+    }
+
+    /// Provider/current-provider storage app id.
+    ///
+    /// Claude Desktop reuses Claude's provider records while retaining its own
+    /// launch, doctor, proxy takeover, and live-backup state.
+    pub fn provider_storage_str(&self) -> &str {
+        match self {
+            AppType::ClaudeDesktop => AppType::Claude.as_str(),
+            _ => self.as_str(),
         }
     }
 
@@ -345,14 +371,17 @@ impl FromStr for AppType {
         let normalized = s.trim().to_lowercase();
         match normalized.as_str() {
             "claude" => Ok(AppType::Claude),
+            "claude_desktop" | "claudedesktop" | "claude-desktop" => {
+                Ok(AppType::ClaudeDesktop)
+            }
             "codex" => Ok(AppType::Codex),
             "gemini" => Ok(AppType::Gemini),
             "opencode" => Ok(AppType::OpenCode),
             "openclaw" => Ok(AppType::OpenClaw),
             other => Err(AppError::localized(
                 "unsupported_app",
-                format!("不支持的应用标识: '{other}'。可选值: claude, codex, gemini, opencode, openclaw。"),
-                format!("Unsupported app id: '{other}'. Allowed: claude, codex, gemini, opencode, openclaw."),
+                format!("不支持的应用标识: '{other}'。可选值: claude, claude_desktop, codex, gemini, opencode, openclaw。"),
+                format!("Unsupported app id: '{other}'. Allowed: claude, claude_desktop, codex, gemini, opencode, openclaw."),
             )),
         }
     }
@@ -381,7 +410,7 @@ impl CommonConfigSnippets {
     /// 获取指定应用的通用配置片段
     pub fn get(&self, app: &AppType) -> Option<&String> {
         match app {
-            AppType::Claude => self.claude.as_ref(),
+            AppType::Claude | AppType::ClaudeDesktop => self.claude.as_ref(),
             AppType::Codex => self.codex.as_ref(),
             AppType::Gemini => self.gemini.as_ref(),
             AppType::OpenCode => self.opencode.as_ref(),
@@ -392,7 +421,7 @@ impl CommonConfigSnippets {
     /// 设置指定应用的通用配置片段
     pub fn set(&mut self, app: &AppType, snippet: Option<String>) {
         match app {
-            AppType::Claude => self.claude = snippet,
+            AppType::Claude | AppType::ClaudeDesktop => self.claude = snippet,
             AppType::Codex => self.codex = snippet,
             AppType::Gemini => self.gemini = snippet,
             AppType::OpenCode => self.opencode = snippet,
@@ -594,6 +623,7 @@ impl MultiAppConfig {
     pub fn mcp_for(&self, app: &AppType) -> &McpConfig {
         match app {
             AppType::Claude => &self.mcp.claude,
+            AppType::ClaudeDesktop => &self.mcp.claude_desktop,
             AppType::Codex => &self.mcp.codex,
             AppType::Gemini => &self.mcp.gemini,
             AppType::OpenCode => &self.mcp.opencode,
@@ -605,6 +635,7 @@ impl MultiAppConfig {
     pub fn mcp_for_mut(&mut self, app: &AppType) -> &mut McpConfig {
         match app {
             AppType::Claude => &mut self.mcp.claude,
+            AppType::ClaudeDesktop => &mut self.mcp.claude_desktop,
             AppType::Codex => &mut self.mcp.codex,
             AppType::Gemini => &mut self.mcp.gemini,
             AppType::OpenCode => &mut self.mcp.opencode,
@@ -725,6 +756,7 @@ impl MultiAppConfig {
         // 插入到对应的应用配置中
         let prompts = match app {
             AppType::Claude => &mut config.prompts.claude.prompts,
+            AppType::ClaudeDesktop => &mut config.prompts.claude_desktop.prompts,
             AppType::Codex => &mut config.prompts.codex.prompts,
             AppType::Gemini => &mut config.prompts.gemini.prompts,
             AppType::OpenCode => &mut config.prompts.opencode.prompts,
@@ -765,6 +797,7 @@ impl MultiAppConfig {
         ] {
             let old_servers = match app {
                 AppType::Claude => &self.mcp.claude.servers,
+                AppType::ClaudeDesktop => continue,
                 AppType::Codex => &self.mcp.codex.servers,
                 AppType::Gemini => &self.mcp.gemini.servers,
                 AppType::OpenCode => &self.mcp.opencode.servers,

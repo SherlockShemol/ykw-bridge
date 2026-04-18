@@ -9,7 +9,8 @@
 //! a direct (non-proxied) CLI request.
 
 use super::{
-    failover_switch::FailoverSwitchManager, handlers, log_codes::srv as log_srv,
+    failover_switch::FailoverSwitchManager, handlers,
+    local_session_title_watcher::LocalSessionTitleWatcher, log_codes::srv as log_srv,
     provider_router::ProviderRouter, types::*, ProxyError,
 };
 use crate::database::Database;
@@ -19,10 +20,13 @@ use axum::{
     Router,
 };
 use hyper_util::rt::TokioIo;
+use rustls::ServerConfig as RustlsServerConfig;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use tokio::net::TcpListener;
 use tokio::sync::{oneshot, RwLock};
 use tokio::task::JoinHandle;
+use tokio_rustls::TlsAcceptor;
 
 /// 代理服务器状态（共享）
 #[derive(Clone)]
@@ -39,6 +43,8 @@ pub struct ProxyState {
     pub app_handle: Option<tauri::AppHandle>,
     /// 故障转移切换管理器
     pub failover_manager: Arc<FailoverSwitchManager>,
+    /// Claude Desktop/Codex 本地会话标题 watcher
+    pub local_session_title_watcher: Arc<LocalSessionTitleWatcher>,
 }
 
 /// 代理HTTP服务器
@@ -48,6 +54,8 @@ pub struct ProxyServer {
     shutdown_tx: Arc<RwLock<Option<oneshot::Sender<()>>>>,
     /// 服务器任务句柄，用于等待服务器实际关闭
     server_handle: Arc<RwLock<Option<JoinHandle<()>>>>,
+    https_shutdown_tx: Arc<RwLock<Option<oneshot::Sender<()>>>>,
+    https_server_handle: Arc<RwLock<Option<JoinHandle<()>>>>,
 }
 
 impl ProxyServer {
@@ -70,6 +78,7 @@ impl ProxyServer {
             provider_router,
             app_handle,
             failover_manager,
+            local_session_title_watcher: Arc::new(LocalSessionTitleWatcher::new()),
         };
 
         Self {
@@ -77,7 +86,40 @@ impl ProxyServer {
             state,
             shutdown_tx: Arc::new(RwLock::new(None)),
             server_handle: Arc::new(RwLock::new(None)),
+            https_shutdown_tx: Arc::new(RwLock::new(None)),
+            https_server_handle: Arc::new(RwLock::new(None)),
         }
+    }
+
+    fn load_tls_acceptor() -> Result<TlsAcceptor, ProxyError> {
+        crate::rustls_provider::ensure_rustls_crypto_provider();
+
+        let cert_path = crate::claude_desktop_config::resolve_server_cert_path();
+        let key_path = crate::claude_desktop_config::resolve_server_key_path();
+
+        let mut cert_reader = std::io::BufReader::new(
+            std::fs::File::open(&cert_path)
+                .map_err(|e| ProxyError::BindFailed(format!("读取 TLS 证书失败: {e}")))?,
+        );
+        let certs = rustls_pemfile::certs(&mut cert_reader)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| ProxyError::BindFailed(format!("解析 TLS 证书失败: {e}")))?;
+
+        let mut key_reader = std::io::BufReader::new(
+            std::fs::File::open(&key_path)
+                .map_err(|e| ProxyError::BindFailed(format!("读取 TLS 私钥失败: {e}")))?,
+        );
+        let key = rustls_pemfile::private_key(&mut key_reader)
+            .map_err(|e| ProxyError::BindFailed(format!("解析 TLS 私钥失败: {e}")))?
+            .ok_or_else(|| ProxyError::BindFailed("TLS 私钥为空".to_string()))?;
+
+        let mut config = RustlsServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(certs, key)
+            .map_err(|e| ProxyError::BindFailed(format!("构建 TLS 配置失败: {e}")))?;
+        config.alpn_protocols = vec![b"http/1.1".to_vec()];
+
+        Ok(TlsAcceptor::from(Arc::new(config)))
     }
 
     pub async fn start(&self) -> Result<ProxyServerInfo, ProxyError> {
@@ -86,19 +128,23 @@ impl ProxyServer {
             return Err(ProxyError::AlreadyRunning);
         }
 
-        let addr: SocketAddr =
-            format!("{}:{}", self.config.listen_address, self.config.listen_port)
-                .parse()
-                .map_err(|e| ProxyError::BindFailed(format!("无效的地址: {e}")))?;
+        let addr: SocketAddr = crate::claude_desktop_config::format_socket_address(
+            &self.config.listen_address,
+            self.config.listen_port,
+        )
+        .parse()
+        .map_err(|e| ProxyError::BindFailed(format!("无效的地址: {e}")))?;
 
         // 创建关闭通道
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
 
         // 构建路由
         let app = self.build_router();
+        let http_app = app.clone();
+        let https_app = self.build_claude_desktop_https_router();
 
         // 绑定监听器
-        let listener = tokio::net::TcpListener::bind(&addr)
+        let listener = TcpListener::bind(&addr)
             .await
             .map_err(|e| ProxyError::BindFailed(e.to_string()))?;
 
@@ -137,7 +183,7 @@ impl ProxyServer {
                             }
                         };
 
-                        let app = app.clone();
+                        let app = http_app.clone();
                         tokio::spawn(async move {
                             // Peek raw TCP bytes to capture original header casing
                             // before hyper parses (and lowercases) the header names.
@@ -200,6 +246,86 @@ impl ProxyServer {
         // 保存服务器任务句柄
         *self.server_handle.write().await = Some(handle);
 
+        if crate::claude_desktop_config::cert_files_exist() {
+            let https_port =
+                crate::claude_desktop_config::https_port_for_proxy_port(self.config.listen_port);
+            let https_bind_address = crate::claude_desktop_config::https_listener_bind_address(
+                &self.config.listen_address,
+            );
+            let https_addr: SocketAddr = crate::claude_desktop_config::format_socket_address(
+                &https_bind_address,
+                https_port,
+            )
+            .parse()
+            .map_err(|e| ProxyError::BindFailed(format!("无效的 HTTPS 地址: {e}")))?;
+            let https_listener = TcpListener::bind(&https_addr)
+                .await
+                .map_err(|e| ProxyError::BindFailed(format!("HTTPS 绑定失败: {e}")))?;
+            let tls_acceptor = Self::load_tls_acceptor()?;
+            let (https_shutdown_tx, https_shutdown_rx) = oneshot::channel();
+            *self.https_shutdown_tx.write().await = Some(https_shutdown_tx);
+
+            let https_state = self.state.clone();
+            let https_app = https_app.clone();
+            let https_handle = tokio::spawn(async move {
+                let mut https_shutdown_rx = https_shutdown_rx;
+                loop {
+                    tokio::select! {
+                        result = https_listener.accept() => {
+                            let (stream, _remote_addr) = match result {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    log::error!("[{SRV}] https accept 失败: {e}", SRV = log_srv::ACCEPT_ERR);
+                                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                                    continue;
+                                }
+                            };
+
+                            let app = https_app.clone();
+                            let acceptor = tls_acceptor.clone();
+                            tokio::spawn(async move {
+                                let tls_stream = match acceptor.accept(stream).await {
+                                    Ok(stream) => stream,
+                                    Err(e) => {
+                                        log::debug!("[ProxyServer] TLS handshake failed: {e}");
+                                        return;
+                                    }
+                                };
+
+                                let service = hyper::service::service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
+                                    let mut router = app.clone();
+                                    async move {
+                                        let (parts, body) = req.into_parts();
+                                        let body = axum::body::Body::new(body);
+                                        let axum_req = http::Request::from_parts(parts, body);
+                                        <Router as tower::Service<http::Request<axum::body::Body>>>::call(&mut router, axum_req).await
+                                    }
+                                });
+
+                                if let Err(e) = hyper::server::conn::http1::Builder::new()
+                                    .serve_connection(TokioIo::new(tls_stream), service)
+                                    .await
+                                {
+                                    log::debug!("[{SRV}] tls connection error: {e}", SRV = log_srv::CONN_ERR);
+                                }
+                            });
+                        }
+                        _ = &mut https_shutdown_rx => {
+                            break;
+                        }
+                    }
+                }
+
+                https_state.status.write().await.running = false;
+                *https_state.start_time.write().await = None;
+            });
+
+            *self.https_server_handle.write().await = Some(https_handle);
+            log::info!("[{}] HTTPS gateway 启动于 {https_addr}", log_srv::STARTED);
+        } else {
+            log::info!("Claude Desktop TLS 证书未配置，跳过 HTTPS gateway listener");
+        }
+
         Ok(ProxyServerInfo {
             address: self.config.listen_address.clone(),
             port: self.config.listen_port,
@@ -214,27 +340,55 @@ impl ProxyServer {
         } else {
             return Err(ProxyError::NotRunning);
         }
+        if let Some(tx) = self.https_shutdown_tx.write().await.take() {
+            let _ = tx.send(());
+        }
 
         // 2. 等待服务器任务结束（带 5 秒超时保护）
+        let mut stop_error: Option<ProxyError> = None;
+
         if let Some(handle) = self.server_handle.write().await.take() {
             match tokio::time::timeout(std::time::Duration::from_secs(5), handle).await {
-                Ok(Ok(())) => {
-                    log::info!("[{}] 代理服务器已完全停止", log_srv::STOPPED);
-                    Ok(())
-                }
+                Ok(Ok(())) => {}
                 Ok(Err(e)) => {
                     log::warn!("[{}] 代理服务器任务异常终止: {e}", log_srv::TASK_ERROR);
-                    Err(ProxyError::StopFailed(e.to_string()))
+                    stop_error = Some(ProxyError::StopFailed(e.to_string()));
                 }
                 Err(_) => {
                     log::warn!(
                         "[{}] 代理服务器停止超时（5秒），强制继续",
                         log_srv::STOP_TIMEOUT
                     );
-                    Err(ProxyError::StopTimeout)
+                    stop_error = Some(ProxyError::StopTimeout);
                 }
             }
+        }
+
+        if let Some(handle) = self.https_server_handle.write().await.take() {
+            match tokio::time::timeout(std::time::Duration::from_secs(5), handle).await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => {
+                    log::warn!("[{}] HTTPS gateway 任务异常终止: {e}", log_srv::TASK_ERROR);
+                    if stop_error.is_none() {
+                        stop_error = Some(ProxyError::StopFailed(e.to_string()));
+                    }
+                }
+                Err(_) => {
+                    log::warn!(
+                        "[{}] HTTPS gateway 停止超时（5秒），强制继续",
+                        log_srv::STOP_TIMEOUT
+                    );
+                    if stop_error.is_none() {
+                        stop_error = Some(ProxyError::StopTimeout);
+                    }
+                }
+            }
+        }
+
+        if let Some(err) = stop_error {
+            Err(err)
         } else {
+            log::info!("[{}] 代理服务器已完全停止", log_srv::STOPPED);
             Ok(())
         }
     }
@@ -281,6 +435,30 @@ impl ProxyServer {
             // Claude API (支持带前缀和不带前缀两种格式)
             .route("/v1/messages", post(handlers::handle_messages))
             .route("/claude/v1/messages", post(handlers::handle_messages))
+            .route(
+                "/claude-desktop/v1/messages",
+                post(handlers::handle_claude_desktop_messages),
+            )
+            .route(
+                "/claude-desktop/v1/models",
+                get(handlers::handle_claude_desktop_models),
+            )
+            .route(
+                "/claude_desktop/v1/messages",
+                post(handlers::handle_claude_desktop_messages),
+            )
+            .route(
+                "/claude_desktop/v1/models",
+                get(handlers::handle_claude_desktop_models),
+            )
+            .route(
+                "/api/organizations/{org_id}/chat_conversations/{conversation_id}/title",
+                post(handlers::handle_chat_conversation_title),
+            )
+            .route(
+                "/api/organizations/{org_id}/dust/generate_session_title",
+                post(handlers::handle_session_title),
+            )
             // OpenAI Chat Completions API (Codex CLI，支持带前缀和不带前缀)
             .route("/chat/completions", post(handlers::handle_chat_completions))
             .route(
@@ -321,6 +499,37 @@ impl ProxyServer {
             .route("/v1beta/*path", post(handlers::handle_gemini))
             .route("/gemini/v1beta/*path", post(handlers::handle_gemini))
             // 提高默认请求体大小限制（避免 413 Payload Too Large）
+            .layer(DefaultBodyLimit::max(200 * 1024 * 1024))
+            .with_state(self.state.clone())
+    }
+
+    fn build_claude_desktop_https_router(&self) -> Router {
+        Router::new()
+            .route("/health", get(handlers::health_check))
+            .route(
+                "/claude-desktop/v1/messages",
+                post(handlers::handle_claude_desktop_messages),
+            )
+            .route(
+                "/claude-desktop/v1/models",
+                get(handlers::handle_claude_desktop_models),
+            )
+            .route(
+                "/claude_desktop/v1/messages",
+                post(handlers::handle_claude_desktop_messages),
+            )
+            .route(
+                "/claude_desktop/v1/models",
+                get(handlers::handle_claude_desktop_models),
+            )
+            .route(
+                "/api/organizations/{org_id}/chat_conversations/{conversation_id}/title",
+                post(handlers::handle_chat_conversation_title),
+            )
+            .route(
+                "/api/organizations/{org_id}/dust/generate_session_title",
+                post(handlers::handle_session_title),
+            )
             .layer(DefaultBodyLimit::max(200 * 1024 * 1024))
             .with_state(self.state.clone())
     }

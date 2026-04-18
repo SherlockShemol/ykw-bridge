@@ -174,6 +174,7 @@ export type ClaudeApiKeyField = "ANTHROPIC_AUTH_TOKEN" | "ANTHROPIC_API_KEY";
 // 主页面显示的应用配置
 export interface VisibleApps {
   claude: boolean;
+  claude_desktop: boolean;
   codex: boolean;
   gemini: boolean;
   opencode: boolean;
@@ -263,6 +264,12 @@ export interface Settings {
   // ===== 设备级目录覆盖 =====
   // 覆盖 Claude Code 配置目录（可选）
   claudeConfigDir?: string;
+  // Claude Desktop 官方 App 路径（可选）
+  claudeDesktopAppPath?: string;
+  // Claude Desktop 受管 profile 目录（可选）
+  claudeDesktopProfileDir?: string;
+  // 当 cc-switch 运行时，拦截直接启动的 Claude Desktop 并改为受管 3P 启动
+  claudeDesktopLaunchWatchdogEnabled?: boolean;
   // 覆盖 Codex 配置目录（可选）
   codexConfigDir?: string;
   // 覆盖 Gemini 配置目录（可选）
@@ -275,6 +282,8 @@ export interface Settings {
   // ===== 当前供应商 ID（设备级）=====
   // 当前 Claude 供应商 ID（优先于数据库 is_current）
   currentProviderClaude?: string;
+  // 兼容旧字段：Claude Desktop 现与 Claude 共用当前供应商
+  currentProviderClaudeDesktop?: string;
   // 当前 Codex 供应商 ID（优先于数据库 is_current）
   currentProviderCodex?: string;
   // 当前 Gemini 供应商 ID（优先于数据库 is_current）
@@ -385,6 +394,7 @@ export interface McpConfigResponse {
 // 统一供应商的应用启用状态
 export interface UniversalProviderApps {
   claude: boolean;
+  claudeDesktop?: boolean;
   codex: boolean;
   gemini: boolean;
 }
@@ -411,6 +421,7 @@ export interface GeminiModelConfig {
 // 各应用的模型配置
 export interface UniversalProviderModels {
   claude?: ClaudeModelConfig;
+  claudeDesktop?: ClaudeModelConfig;
   codex?: CodexModelConfig;
   gemini?: GeminiModelConfig;
 }

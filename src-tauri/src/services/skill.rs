@@ -509,6 +509,11 @@ impl SkillService {
                     return Ok(custom.join("skills"));
                 }
             }
+            AppType::ClaudeDesktop => {
+                if let Some(custom) = crate::settings::get_claude_desktop_profile_dir() {
+                    return Ok(custom.join("skills"));
+                }
+            }
             AppType::Codex => {
                 if let Some(custom) = crate::settings::get_codex_override_dir() {
                     return Ok(custom.join("skills"));
@@ -540,6 +545,9 @@ impl SkillService {
 
         Ok(match app {
             AppType::Claude => home.join(".claude").join("skills"),
+            AppType::ClaudeDesktop => {
+                crate::claude_desktop_config::resolve_profile_dir().join("skills")
+            }
             AppType::Codex => home.join(".codex").join("skills"),
             AppType::Gemini => home.join(".gemini").join("skills"),
             AppType::OpenCode => home.join(".config").join("opencode").join("skills"),

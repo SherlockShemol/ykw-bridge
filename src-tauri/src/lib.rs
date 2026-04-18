@@ -1,6 +1,7 @@
 mod app_config;
 mod app_store;
 mod auto_launch;
+mod claude_desktop_config;
 mod claude_mcp;
 mod claude_plugin;
 mod codex_config;
@@ -24,6 +25,7 @@ mod prompt_files;
 mod provider;
 mod provider_defaults;
 mod proxy;
+mod rustls_provider;
 mod services;
 mod session_manager;
 mod settings;
@@ -197,6 +199,8 @@ fn macos_tray_icon() -> Option<Image<'static>> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    crate::rustls_provider::ensure_rustls_crypto_provider();
+
     // 设置 panic hook，在应用崩溃时记录日志到 <app_config_dir>/crash.log（默认 ~/.cc-switch/crash.log）
     panic_hook::setup_panic_hook();
 
@@ -235,6 +239,10 @@ pub fn run() {
                 let _ = window.unminimize();
                 let _ = window.show();
                 let _ = window.set_focus();
+                #[cfg(target_os = "macos")]
+                {
+                    tray::apply_tray_policy(app, true);
+                }
                 #[cfg(target_os = "linux")]
                 {
                     linux_fix::nudge_main_window(window.clone());
@@ -511,6 +519,12 @@ pub fn run() {
                 Err(e) => log::warn!("✗ Failed to seed official providers: {e}"),
             }
 
+            if let Err(e) =
+                crate::services::provider::ProviderService::ensure_shared_claude_family(&app_state)
+            {
+                log::warn!("✗ Failed to sync shared Claude/Desktop providers: {e}");
+            }
+
             // 老用户 / 已确认的路径由 `fresh_install_at_startup` 自行拦截，这里不做写入。
             // 字段只由前端在用户点击"我知道了"时 save_settings 回写，语义是"用户显式确认过"。
             if !first_run_already_confirmed && fresh_install_at_startup {
@@ -767,6 +781,7 @@ pub fn run() {
                 app_state.db.clone(),
                 app.handle().clone(),
             );
+            crate::services::claude_desktop_launch_watchdog::start_worker(app.handle().clone());
             // 将同一个实例注入到全局状态，避免重复创建导致的不一致
             app.manage(app_state);
 
@@ -969,13 +984,19 @@ pub fn run() {
             }
 
             // 静默启动：根据设置决定是否显示主窗口
+            //
+            // In `tauri dev`, hiding the main window on startup is actively confusing:
+            // the desktop shell appears to "flash and quit", and users often fall back to
+            // the raw Vite page where Tauri IPC is unavailable. Keep the window visible for
+            // debug builds even if silent startup is enabled in persisted settings.
             let settings = crate::settings::get_settings();
+            let silent_startup_enabled = settings.silent_startup && !cfg!(debug_assertions);
             if let Some(window) = app.get_webview_window("main") {
                 // 在窗口首次显示前同步装饰状态，避免前端加载后再切换导致标题栏闪烁
                 // 仅 Linux 生效：解决 Wayland 下系统窗口按钮不可用的问题
                 #[cfg(target_os = "linux")]
                 let _ = window.set_decorations(!settings.use_app_window_controls);
-                if settings.silent_startup {
+                if silent_startup_enabled {
                     // 静默启动模式：保持窗口隐藏
                     let _ = window.hide();
                     #[cfg(target_os = "windows")]
@@ -986,7 +1007,16 @@ pub fn run() {
                 } else {
                     // 正常启动模式：显示窗口
                     let _ = window.show();
-                    log::info!("正常启动模式：主窗口已显示");
+                    let _ = window.set_focus();
+                    #[cfg(target_os = "macos")]
+                    {
+                        tray::apply_tray_policy(app.handle(), true);
+                    }
+                    if settings.silent_startup && cfg!(debug_assertions) {
+                        log::info!("调试模式已忽略静默启动：主窗口已显示");
+                    } else {
+                        log::info!("正常启动模式：主窗口已显示");
+                    }
 
                     // Linux: 解决首次启动 UI 无响应问题（Tauri #10746 + wry #637）。
                     // 启动时 webview 未获取焦点 + surface 尺寸协商失败，导致点击无效。
@@ -1011,6 +1041,12 @@ pub fn run() {
             commands::switch_provider,
             commands::import_default_config,
             commands::get_claude_config_status,
+            commands::get_claude_desktop_status,
+            commands::doctor_claude_desktop,
+            commands::install_claude_desktop_certificate,
+            commands::install_claude_desktop_launch_shim,
+            commands::remove_claude_desktop_launch_shim,
+            commands::launch_claude_desktop,
             commands::get_config_status,
             commands::get_claude_code_config_path,
             commands::get_config_dir,
@@ -1470,7 +1506,7 @@ pub async fn cleanup_before_exit(app_handle: &tauri::AppHandle) {
 async fn restore_proxy_state_on_startup(state: &store::AppState) {
     // 收集需要恢复接管的应用列表（从 proxy_config.enabled 读取）
     let mut apps_to_restore = Vec::new();
-    for app_type in ["claude", "codex", "gemini"] {
+    for app_type in ["claude", "claude_desktop", "codex", "gemini"] {
         if let Ok(config) = state.db.get_proxy_config_for_app(app_type).await {
             if config.enabled {
                 apps_to_restore.push(app_type);

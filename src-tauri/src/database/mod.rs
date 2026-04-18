@@ -72,6 +72,13 @@ pub struct Database {
     pub(crate) conn: Mutex<Connection>,
 }
 
+pub(crate) fn canonical_provider_app_type(app_type: &str) -> &str {
+    match app_type {
+        "claude_desktop" => "claude",
+        _ => app_type,
+    }
+}
+
 fn register_db_change_hook(conn: &Connection) {
     conn.update_hook(Some(
         |action: Action, _database: &str, table: &str, _row_id: i64| match action {

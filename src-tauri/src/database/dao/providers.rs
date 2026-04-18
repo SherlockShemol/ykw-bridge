@@ -21,6 +21,7 @@ impl Database {
         &self,
         app_type: &str,
     ) -> Result<IndexMap<String, Provider>, AppError> {
+        let app_type = crate::database::canonical_provider_app_type(app_type);
         let conn = lock_conn!(self.conn);
         let mut stmt = conn.prepare(
             "SELECT id, name, settings_config, website_url, category, created_at, sort_index, notes, icon, icon_color, meta, in_failover_queue
@@ -109,6 +110,7 @@ impl Database {
     }
 
     pub fn get_current_provider(&self, app_type: &str) -> Result<Option<String>, AppError> {
+        let app_type = crate::database::canonical_provider_app_type(app_type);
         let conn = lock_conn!(self.conn);
         let mut stmt = conn
             .prepare("SELECT id FROM providers WHERE app_type = ?1 AND is_current = 1 LIMIT 1")
@@ -132,6 +134,7 @@ impl Database {
         id: &str,
         app_type: &str,
     ) -> Result<Option<Provider>, AppError> {
+        let app_type = crate::database::canonical_provider_app_type(app_type);
         let conn = lock_conn!(self.conn);
         let result = conn.query_row(
             "SELECT name, settings_config, website_url, category, created_at, sort_index, notes, icon, icon_color, meta, in_failover_queue
@@ -178,6 +181,7 @@ impl Database {
     }
 
     pub fn save_provider(&self, app_type: &str, provider: &Provider) -> Result<(), AppError> {
+        let app_type = crate::database::canonical_provider_app_type(app_type);
         let mut conn = lock_conn!(self.conn);
         let tx = conn
             .transaction()
@@ -278,6 +282,7 @@ impl Database {
     }
 
     pub fn delete_provider(&self, app_type: &str, id: &str) -> Result<(), AppError> {
+        let app_type = crate::database::canonical_provider_app_type(app_type);
         let conn = lock_conn!(self.conn);
         conn.execute(
             "DELETE FROM providers WHERE id = ?1 AND app_type = ?2",
@@ -288,6 +293,7 @@ impl Database {
     }
 
     pub fn set_current_provider(&self, app_type: &str, id: &str) -> Result<(), AppError> {
+        let app_type = crate::database::canonical_provider_app_type(app_type);
         let mut conn = lock_conn!(self.conn);
         let tx = conn
             .transaction()
@@ -315,6 +321,7 @@ impl Database {
         provider_id: &str,
         settings_config: &serde_json::Value,
     ) -> Result<(), AppError> {
+        let app_type = crate::database::canonical_provider_app_type(app_type);
         let conn = lock_conn!(self.conn);
         conn.execute(
             "UPDATE providers SET settings_config = ?1 WHERE id = ?2 AND app_type = ?3",
@@ -336,6 +343,7 @@ impl Database {
         provider_id: &str,
         url: &str,
     ) -> Result<(), AppError> {
+        let app_type = crate::database::canonical_provider_app_type(app_type);
         let conn = lock_conn!(self.conn);
         let added_at = chrono::Utc::now().timestamp_millis();
         conn.execute(
@@ -351,6 +359,7 @@ impl Database {
         provider_id: &str,
         url: &str,
     ) -> Result<(), AppError> {
+        let app_type = crate::database::canonical_provider_app_type(app_type);
         let conn = lock_conn!(self.conn);
         conn.execute(
             "DELETE FROM provider_endpoints WHERE provider_id = ?1 AND app_type = ?2 AND url = ?3",
@@ -366,6 +375,7 @@ impl Database {
         provider_id: &str,
         category: &str,
     ) -> Result<(), AppError> {
+        let app_type = crate::database::canonical_provider_app_type(app_type);
         let mut conn = lock_conn!(self.conn);
         let tx = conn
             .transaction()
@@ -409,6 +419,7 @@ impl Database {
         provider_id: &str,
         category: &str,
     ) -> Result<bool, AppError> {
+        let app_type = crate::database::canonical_provider_app_type(app_type);
         let conn = lock_conn!(self.conn);
         match conn.query_row(
             "SELECT is_current FROM providers
@@ -428,6 +439,7 @@ impl Database {
         provider_id: &str,
         category: &str,
     ) -> Result<(), AppError> {
+        let app_type = crate::database::canonical_provider_app_type(app_type);
         let conn = lock_conn!(self.conn);
         conn.execute(
             "UPDATE providers SET is_current = 0
@@ -443,6 +455,7 @@ impl Database {
         app_type: &str,
         category: &str,
     ) -> Result<Option<Provider>, AppError> {
+        let app_type = crate::database::canonical_provider_app_type(app_type);
         let conn = lock_conn!(self.conn);
         let row_data: Result<OmoProviderRow, rusqlite::Error> = conn.query_row(
             "SELECT id, name, settings_config, category, created_at, sort_index, notes, meta
@@ -521,6 +534,7 @@ impl Database {
     /// 比 `get_all_providers` 轻量得多：只读 id 列、无 endpoint 子查询。
     /// 用于只需要做存在性检查的场景（如 additive 模式的 live 同步去重）。
     pub fn get_provider_ids(&self, app_type: &str) -> Result<HashSet<String>, AppError> {
+        let app_type = crate::database::canonical_provider_app_type(app_type);
         let conn = lock_conn!(self.conn);
         let mut stmt = conn
             .prepare("SELECT id FROM providers WHERE app_type = ?1")
@@ -541,6 +555,7 @@ impl Database {
     /// 用于 `import_default_config` 决定是否跳过 live 导入。
     pub fn has_non_official_seed_provider(&self, app_type: &str) -> Result<bool, AppError> {
         use crate::database::dao::providers_seed::is_official_seed_id;
+        let app_type = crate::database::canonical_provider_app_type(app_type);
         let conn = lock_conn!(self.conn);
         let mut stmt = conn
             .prepare("SELECT id FROM providers WHERE app_type = ?1")
@@ -559,6 +574,7 @@ impl Database {
 
     /// 计算指定 app 下一个可用的 sort_index（追加到末尾）。
     fn next_sort_index_for_app(&self, app_type: &str) -> Result<usize, AppError> {
+        let app_type = crate::database::canonical_provider_app_type(app_type);
         let conn = lock_conn!(self.conn);
         let max: Option<i64> = conn
             .query_row(

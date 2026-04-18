@@ -146,6 +146,40 @@ impl ProxyService {
         Ok(())
     }
 
+    pub async fn sync_claude_desktop_live_from_provider_while_proxy_active(
+        &self,
+        provider: &Provider,
+    ) -> Result<(), String> {
+        let effective_settings = build_effective_settings_with_common_config(
+            self.db.as_ref(),
+            &AppType::ClaudeDesktop,
+            provider,
+        )
+        .map_err(|e| format!("构建 claude_desktop 有效配置失败: {e}"))?;
+
+        let global = self
+            .db
+            .get_global_proxy_config()
+            .await
+            .map_err(|e| format!("获取代理配置失败: {e}"))?;
+        let gateway_secret = crate::settings::ensure_claude_desktop_gateway_secret()
+            .map_err(|e| format!("生成 Claude Desktop gateway secret 失败: {e}"))?;
+
+        let config = crate::claude_desktop_config::build_live_config(
+            &Provider {
+                settings_config: effective_settings,
+                ..provider.clone()
+            },
+            &crate::claude_desktop_config::gateway_base_url(
+                &global.listen_address,
+                global.listen_port,
+            ),
+            &gateway_secret,
+        );
+        self.write_claude_desktop_live(&config)?;
+        Ok(())
+    }
+
     /// 设置 AppHandle（在应用初始化时调用）
     pub fn set_app_handle(&self, handle: tauri::AppHandle) {
         futures::executor::block_on(async {
@@ -271,6 +305,12 @@ impl ProxyService {
             .await
             .map(|c| c.enabled)
             .unwrap_or(false);
+        let claude_desktop_enabled = self
+            .db
+            .get_proxy_config_for_app("claude_desktop")
+            .await
+            .map(|c| c.enabled)
+            .unwrap_or(false);
         let codex_enabled = self
             .db
             .get_proxy_config_for_app("codex")
@@ -289,6 +329,7 @@ impl ProxyService {
 
         Ok(ProxyTakeoverStatus {
             claude: claude_enabled,
+            claude_desktop: claude_desktop_enabled,
             codex: codex_enabled,
             gemini: gemini_enabled,
             opencode: opencode_enabled,
@@ -464,6 +505,7 @@ impl ProxyService {
     async fn sync_live_to_provider(&self, app_type: &AppType) -> Result<(), String> {
         let live_config = match app_type {
             AppType::Claude => self.read_claude_live()?,
+            AppType::ClaudeDesktop => return Ok(()),
             AppType::Codex => self.read_codex_live()?,
             AppType::Gemini => self.read_gemini_live()?,
             AppType::OpenCode => {
@@ -581,6 +623,7 @@ impl ProxyService {
                     }
                 }
             }
+            AppType::ClaudeDesktop => {}
             AppType::Codex => {
                 let provider_id =
                     crate::settings::get_effective_current_provider(&self.db, &AppType::Codex)
@@ -766,7 +809,7 @@ impl ProxyService {
             .map_err(|e| format!("清除接管状态失败: {e}"))?;
 
         // 4. 清除所有应用的 enabled 状态（用户手动关闭，不需要下次自动恢复）
-        for app_type in ["claude", "codex", "gemini"] {
+        for app_type in ["claude", "claude_desktop", "codex", "gemini"] {
             if let Ok(mut config) = self.db.get_proxy_config_for_app(app_type).await {
                 if config.enabled {
                     config.enabled = false;
@@ -841,6 +884,15 @@ impl ProxyService {
                 .map_err(|e| format!("备份 Claude 配置失败: {e}"))?;
         }
 
+        if let Ok(config) = self.read_claude_desktop_live() {
+            let json_str = serde_json::to_string(&config)
+                .map_err(|e| format!("序列化 Claude Desktop 配置失败: {e}"))?;
+            self.db
+                .save_live_backup("claude_desktop", &json_str)
+                .await
+                .map_err(|e| format!("备份 Claude Desktop 配置失败: {e}"))?;
+        }
+
         // Codex
         if let Ok(config) = self.read_codex_live() {
             let json_str = serde_json::to_string(&config)
@@ -869,6 +921,11 @@ impl ProxyService {
     async fn backup_live_config_strict(&self, app_type: &AppType) -> Result<(), String> {
         let (app_type_str, config) = match app_type {
             AppType::Claude => ("claude", self.read_claude_live()?),
+            AppType::ClaudeDesktop => (
+                "claude_desktop",
+                self.read_claude_desktop_live()
+                    .unwrap_or_else(|_| json!({})),
+            ),
             AppType::Codex => ("codex", self.read_codex_live()?),
             AppType::Gemini => ("gemini", self.read_gemini_live()?),
             AppType::OpenCode => {
@@ -919,6 +976,18 @@ impl ProxyService {
         Ok((proxy_url, proxy_codex_base_url))
     }
 
+    async fn build_claude_desktop_proxy_url(&self) -> Result<String, String> {
+        let config = self
+            .db
+            .get_proxy_config()
+            .await
+            .map_err(|e| format!("获取代理配置失败: {e}"))?;
+        Ok(crate::claude_desktop_config::gateway_base_url(
+            &config.listen_address,
+            config.listen_port,
+        ))
+    }
+
     /// 接管各应用的 Live 配置（写入代理地址）
     ///
     /// 代理服务器的路由已经根据 API 端点自动区分应用类型：
@@ -935,6 +1004,23 @@ impl ProxyService {
             Self::apply_claude_takeover_fields(&mut live_config, &proxy_url);
             self.write_claude_live(&live_config)?;
             log::info!("Claude Live 配置已接管，代理地址: {proxy_url}");
+        }
+
+        if let Ok(Some(current_id)) =
+            crate::settings::get_effective_current_provider(&self.db, &AppType::ClaudeDesktop)
+        {
+            if let Ok(Some(provider)) = self.db.get_provider_by_id(&current_id, "claude_desktop") {
+                let gateway_secret = crate::settings::ensure_claude_desktop_gateway_secret()
+                    .map_err(|e| format!("生成 Claude Desktop gateway secret 失败: {e}"))?;
+                let gateway_url = self.build_claude_desktop_proxy_url().await?;
+                let config = crate::claude_desktop_config::build_live_config(
+                    &provider,
+                    &gateway_url,
+                    &gateway_secret,
+                );
+                self.write_claude_desktop_live(&config)?;
+                log::info!("Claude Desktop Live 配置已接管，代理地址: {gateway_url}");
+            }
         }
 
         // Codex: 修改 config.toml 的 base_url，auth.json 的 OPENAI_API_KEY（代理会注入真实 Token）
@@ -985,6 +1071,29 @@ impl ProxyService {
                 Self::apply_claude_takeover_fields(&mut live_config, &proxy_url);
                 self.write_claude_live(&live_config)?;
                 log::info!("Claude Live 配置已接管，代理地址: {proxy_url}");
+            }
+            AppType::ClaudeDesktop => {
+                let current_id = crate::settings::get_effective_current_provider(
+                    &self.db,
+                    &AppType::ClaudeDesktop,
+                )
+                .map_err(|e| format!("获取 Claude Desktop 当前供应商失败: {e}"))?
+                .ok_or_else(|| "Claude Desktop 尚未选择供应商".to_string())?;
+                let provider = self
+                    .db
+                    .get_provider_by_id(&current_id, "claude_desktop")
+                    .map_err(|e| format!("读取 Claude Desktop 供应商失败: {e}"))?
+                    .ok_or_else(|| "Claude Desktop 当前供应商不存在".to_string())?;
+                let gateway_secret = crate::settings::ensure_claude_desktop_gateway_secret()
+                    .map_err(|e| format!("生成 Claude Desktop gateway secret 失败: {e}"))?;
+                let gateway_url = self.build_claude_desktop_proxy_url().await?;
+                let config = crate::claude_desktop_config::build_live_config(
+                    &provider,
+                    &gateway_url,
+                    &gateway_secret,
+                );
+                self.write_claude_desktop_live(&config)?;
+                log::info!("Claude Desktop Live 配置已接管，代理地址: {gateway_url}");
             }
             AppType::Codex => {
                 let mut live_config = self.read_codex_live()?;
@@ -1041,6 +1150,29 @@ impl ProxyService {
                 if let Ok(mut live_config) = self.read_claude_live() {
                     Self::apply_claude_takeover_fields(&mut live_config, &proxy_url);
                     let _ = self.write_claude_live(&live_config);
+                }
+            }
+            AppType::ClaudeDesktop => {
+                if let Ok(Some(current_id)) = crate::settings::get_effective_current_provider(
+                    &self.db,
+                    &AppType::ClaudeDesktop,
+                ) {
+                    if let Ok(Some(provider)) =
+                        self.db.get_provider_by_id(&current_id, "claude_desktop")
+                    {
+                        if let Ok(gateway_secret) =
+                            crate::settings::ensure_claude_desktop_gateway_secret()
+                        {
+                            if let Ok(gateway_url) = self.build_claude_desktop_proxy_url().await {
+                                let config = crate::claude_desktop_config::build_live_config(
+                                    &provider,
+                                    &gateway_url,
+                                    &gateway_secret,
+                                );
+                                let _ = self.write_claude_desktop_live(&config);
+                            }
+                        }
+                    }
                 }
             }
             AppType::Codex => {
@@ -1103,6 +1235,14 @@ impl ProxyService {
                     log::info!("Claude Live 配置已恢复");
                 }
             }
+            AppType::ClaudeDesktop => {
+                if let Ok(Some(backup)) = self.db.get_live_backup("claude_desktop").await {
+                    let config: Value = serde_json::from_str(&backup.original_config)
+                        .map_err(|e| format!("解析 Claude Desktop 备份失败: {e}"))?;
+                    self.write_claude_desktop_live(&config)?;
+                    log::info!("Claude Desktop Live 配置已恢复");
+                }
+            }
             AppType::Codex => {
                 if let Ok(Some(backup)) = self.db.get_live_backup("codex").await {
                     let config: Value = serde_json::from_str(&backup.original_config)
@@ -1134,7 +1274,12 @@ impl ProxyService {
     async fn restore_live_configs(&self) -> Result<(), String> {
         let mut errors = Vec::new();
 
-        for app_type in [AppType::Claude, AppType::Codex, AppType::Gemini] {
+        for app_type in [
+            AppType::Claude,
+            AppType::ClaudeDesktop,
+            AppType::Codex,
+            AppType::Gemini,
+        ] {
             if let Err(e) = self
                 .restore_live_config_for_app_with_fallback(&app_type)
                 .await
@@ -1211,6 +1356,7 @@ impl ProxyService {
     fn write_live_config_for_app(&self, app_type: &AppType, config: &Value) -> Result<(), String> {
         match app_type {
             AppType::Claude => self.write_claude_live(config),
+            AppType::ClaudeDesktop => self.write_claude_desktop_live(config),
             AppType::Codex => self.write_codex_live(config),
             AppType::Gemini => self.write_gemini_live(config),
             AppType::OpenCode => {
@@ -1228,6 +1374,10 @@ impl ProxyService {
         match app_type {
             AppType::Claude => match self.read_claude_live() {
                 Ok(config) => Self::is_claude_live_taken_over(&config),
+                Err(_) => false,
+            },
+            AppType::ClaudeDesktop => match self.read_claude_desktop_live() {
+                Ok(config) => Self::is_claude_desktop_live_taken_over(&config),
                 Err(_) => false,
             },
             AppType::Codex => match self.read_codex_live() {
@@ -1283,6 +1433,7 @@ impl ProxyService {
     ) -> Result<(), String> {
         match app_type {
             AppType::Claude => self.cleanup_claude_takeover_placeholders_in_live(),
+            AppType::ClaudeDesktop => Ok(()),
             AppType::Codex => self.cleanup_codex_takeover_placeholders_in_live(),
             AppType::Gemini => self.cleanup_gemini_takeover_placeholders_in_live(),
             AppType::OpenCode => {
@@ -1298,10 +1449,13 @@ impl ProxyService {
 
     fn is_local_proxy_url(url: &str) -> bool {
         let url = url.trim();
-        if !url.starts_with("http://") {
+        let rest = if let Some(rest) = url.strip_prefix("http://") {
+            rest
+        } else if let Some(rest) = url.strip_prefix("https://") {
+            rest
+        } else {
             return false;
-        }
-        let rest = &url["http://".len()..];
+        };
         rest.starts_with("127.0.0.1")
             || rest.starts_with("localhost")
             || rest.starts_with("0.0.0.0")
@@ -1466,6 +1620,10 @@ impl ProxyService {
         false
     }
 
+    fn is_claude_desktop_live_taken_over(config: &Value) -> bool {
+        crate::claude_desktop_config::is_managed_gateway_config(config)
+    }
+
     fn is_codex_live_taken_over(config: &Value) -> bool {
         let auth = match config.get("auth").and_then(|v| v.as_object()) {
             Some(auth) => auth,
@@ -1528,6 +1686,8 @@ impl ProxyService {
         let backup_json = match app_type_enum {
             AppType::Claude => serde_json::to_string(&effective_settings)
                 .map_err(|e| format!("序列化 Claude 配置失败: {e}"))?,
+            AppType::ClaudeDesktop => serde_json::to_string(&effective_settings)
+                .map_err(|e| format!("序列化 Claude Desktop 配置失败: {e}"))?,
             AppType::Codex => serde_json::to_string(&effective_settings)
                 .map_err(|e| format!("序列化 Codex 配置失败: {e}"))?,
             AppType::Gemini => {
@@ -1608,6 +1768,9 @@ impl ProxyService {
                 if let Err(e) = self.cleanup_claude_model_overrides_in_live() {
                     log::warn!("清理 Claude Live 模型字段失败（不影响热切换结果）: {e}");
                 }
+            } else if matches!(app_type_enum, AppType::ClaudeDesktop) {
+                self.sync_claude_desktop_live_from_provider_while_proxy_active(&provider)
+                    .await?;
             }
         }
 
@@ -1747,6 +1910,16 @@ impl ProxyService {
         let path = get_claude_settings_path();
         let settings = crate::services::provider::sanitize_claude_settings_for_live(config);
         write_json_file(&path, &settings).map_err(|e| format!("写入 Claude 配置失败: {e}"))
+    }
+
+    fn read_claude_desktop_live(&self) -> Result<Value, String> {
+        crate::claude_desktop_config::read_live_config()
+            .map_err(|e| format!("读取 Claude Desktop 配置失败: {e}"))
+    }
+
+    fn write_claude_desktop_live(&self, config: &Value) -> Result<(), String> {
+        crate::claude_desktop_config::write_live_config(config)
+            .map_err(|e| format!("写入 Claude Desktop 配置失败: {e}"))
     }
 
     fn read_codex_live(&self) -> Result<Value, String> {

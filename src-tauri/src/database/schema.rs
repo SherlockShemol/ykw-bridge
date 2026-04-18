@@ -120,7 +120,7 @@ impl Database {
 
         // 8. Proxy Config 表（三行结构，app_type 主键）
         conn.execute("CREATE TABLE IF NOT EXISTS proxy_config (
-            app_type TEXT PRIMARY KEY CHECK (app_type IN ('claude','codex','gemini')),
+            app_type TEXT PRIMARY KEY CHECK (app_type IN ('claude','claude_desktop','codex','gemini')),
             proxy_enabled INTEGER NOT NULL DEFAULT 0, listen_address TEXT NOT NULL DEFAULT '127.0.0.1',
             listen_port INTEGER NOT NULL DEFAULT 15721, enable_logging INTEGER NOT NULL DEFAULT 1,
             enabled INTEGER NOT NULL DEFAULT 0, auto_failover_enabled INTEGER NOT NULL DEFAULT 0,
@@ -146,6 +146,15 @@ impl Database {
                 circuit_failure_threshold, circuit_success_threshold, circuit_timeout_seconds,
                 circuit_error_rate_threshold, circuit_min_requests)
                 VALUES ('claude', 6, 90, 180, 600, 8, 3, 90, 0.7, 15)",
+                [],
+            )
+            .map_err(|e| AppError::Database(e.to_string()))?;
+            conn.execute(
+                "INSERT OR IGNORE INTO proxy_config (app_type, max_retries,
+                streaming_first_byte_timeout, streaming_idle_timeout, non_streaming_timeout,
+                circuit_failure_threshold, circuit_success_threshold, circuit_timeout_seconds,
+                circuit_error_rate_threshold, circuit_min_requests)
+                VALUES ('claude_desktop', 6, 90, 180, 600, 8, 3, 90, 0.7, 15)",
                 [],
             )
             .map_err(|e| AppError::Database(e.to_string()))?;
@@ -329,6 +338,11 @@ impl Database {
         {
             Self::migrate_proxy_config_to_per_app(conn)?;
         }
+
+        // Some existing installs already have a per-app proxy_config table, but still carry
+        // the pre-Claude Desktop CHECK constraint and never get repaired again because their
+        // user_version no longer triggers the old migration path.
+        Self::migrate_proxy_config_add_claude_desktop(conn)?;
 
         // 确保 in_failover_queue 列存在（对于已存在的 v2 数据库）
         Self::add_column_if_missing(
@@ -641,11 +655,12 @@ impl Database {
 
         // 重构 proxy_config 为三行结构（每应用独立配置）
         Self::migrate_proxy_config_to_per_app(conn)?;
+        Self::migrate_proxy_config_add_claude_desktop(conn)?;
 
         Ok(())
     }
 
-    /// 将 proxy_config 迁移为三行结构（每应用独立配置）
+    /// 将 proxy_config 迁移为多行结构（每应用独立配置）
     fn migrate_proxy_config_to_per_app(conn: &Connection) -> Result<(), AppError> {
         // 检查是否已经是新表结构（幂等性）
         if !Self::table_exists(conn, "proxy_config")? {
@@ -654,8 +669,8 @@ impl Database {
         }
 
         if Self::has_column(conn, "proxy_config", "app_type")? {
-            // 已经是三行结构，跳过迁移
-            log::info!("proxy_config 已经是三行结构，跳过迁移");
+            // 已经是每应用结构，跳过该阶段迁移
+            log::info!("proxy_config 已经是 per-app 结构，跳过旧迁移");
             return Ok(());
         }
 
@@ -710,6 +725,19 @@ impl Database {
                 15,
             ),
             (
+                "claude_desktop",
+                false,
+                false,
+                6,
+                90,
+                180,
+                8,
+                3,
+                90,
+                0.7,
+                15,
+            ),
+            (
                 "codex",
                 get_bool("proxy_takeover_codex"),
                 get_bool("auto_failover_enabled_codex"),
@@ -740,7 +768,7 @@ impl Database {
         // 创建新表
         conn.execute("DROP TABLE IF EXISTS proxy_config_new", [])?;
         conn.execute("CREATE TABLE proxy_config_new (
-            app_type TEXT PRIMARY KEY CHECK (app_type IN ('claude','codex','gemini')),
+            app_type TEXT PRIMARY KEY CHECK (app_type IN ('claude','claude_desktop','codex','gemini')),
             proxy_enabled INTEGER NOT NULL DEFAULT 0, listen_address TEXT NOT NULL DEFAULT '127.0.0.1',
             listen_port INTEGER NOT NULL DEFAULT 15721, enable_logging INTEGER NOT NULL DEFAULT 1,
             enabled INTEGER NOT NULL DEFAULT 0, auto_failover_enabled INTEGER NOT NULL DEFAULT 0,
@@ -778,7 +806,90 @@ impl Database {
             [],
         )?;
 
-        log::info!("proxy_config 已迁移为三行结构");
+        log::info!("proxy_config 已迁移为 per-app 结构");
+        Ok(())
+    }
+
+    fn migrate_proxy_config_add_claude_desktop(conn: &Connection) -> Result<(), AppError> {
+        if !Self::table_exists(conn, "proxy_config")? {
+            return Ok(());
+        }
+
+        if !Self::has_column(conn, "proxy_config", "app_type")? {
+            return Ok(());
+        }
+
+        let create_sql: String = conn
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'proxy_config'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or_default();
+
+        if create_sql.contains("claude_desktop") {
+            conn.execute(
+                "INSERT OR IGNORE INTO proxy_config (app_type, max_retries,
+                streaming_first_byte_timeout, streaming_idle_timeout, non_streaming_timeout,
+                circuit_failure_threshold, circuit_success_threshold, circuit_timeout_seconds,
+                circuit_error_rate_threshold, circuit_min_requests)
+                VALUES ('claude_desktop', 6, 90, 180, 600, 8, 3, 90, 0.7, 15)",
+                [],
+            )
+            .map_err(|e| AppError::Database(e.to_string()))?;
+            return Ok(());
+        }
+
+        conn.execute("DROP TABLE IF EXISTS proxy_config_new", [])?;
+        conn.execute("CREATE TABLE proxy_config_new (
+            app_type TEXT PRIMARY KEY CHECK (app_type IN ('claude','claude_desktop','codex','gemini')),
+            proxy_enabled INTEGER NOT NULL DEFAULT 0, listen_address TEXT NOT NULL DEFAULT '127.0.0.1',
+            listen_port INTEGER NOT NULL DEFAULT 15721, enable_logging INTEGER NOT NULL DEFAULT 1,
+            enabled INTEGER NOT NULL DEFAULT 0, auto_failover_enabled INTEGER NOT NULL DEFAULT 0,
+            max_retries INTEGER NOT NULL DEFAULT 3, streaming_first_byte_timeout INTEGER NOT NULL DEFAULT 60,
+            streaming_idle_timeout INTEGER NOT NULL DEFAULT 120, non_streaming_timeout INTEGER NOT NULL DEFAULT 600,
+            circuit_failure_threshold INTEGER NOT NULL DEFAULT 4, circuit_success_threshold INTEGER NOT NULL DEFAULT 2,
+            circuit_timeout_seconds INTEGER NOT NULL DEFAULT 60, circuit_error_rate_threshold REAL NOT NULL DEFAULT 0.6,
+            circuit_min_requests INTEGER NOT NULL DEFAULT 10,
+            default_cost_multiplier TEXT NOT NULL DEFAULT '1',
+            pricing_model_source TEXT NOT NULL DEFAULT 'response',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )", [])?;
+
+        conn.execute(
+            "INSERT INTO proxy_config_new (
+                app_type, proxy_enabled, listen_address, listen_port, enable_logging,
+                enabled, auto_failover_enabled, max_retries, streaming_first_byte_timeout,
+                streaming_idle_timeout, non_streaming_timeout, circuit_failure_threshold,
+                circuit_success_threshold, circuit_timeout_seconds, circuit_error_rate_threshold,
+                circuit_min_requests, default_cost_multiplier, pricing_model_source,
+                created_at, updated_at
+            )
+            SELECT
+                app_type, proxy_enabled, listen_address, listen_port, enable_logging,
+                enabled, auto_failover_enabled, max_retries, streaming_first_byte_timeout,
+                streaming_idle_timeout, non_streaming_timeout, circuit_failure_threshold,
+                circuit_success_threshold, circuit_timeout_seconds, circuit_error_rate_threshold,
+                circuit_min_requests, default_cost_multiplier, pricing_model_source,
+                created_at, updated_at
+            FROM proxy_config",
+            [],
+        )
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+        conn.execute(
+            "INSERT OR IGNORE INTO proxy_config_new (app_type, max_retries,
+            streaming_first_byte_timeout, streaming_idle_timeout, non_streaming_timeout,
+            circuit_failure_threshold, circuit_success_threshold, circuit_timeout_seconds,
+            circuit_error_rate_threshold, circuit_min_requests)
+            VALUES ('claude_desktop', 6, 90, 180, 600, 8, 3, 90, 0.7, 15)",
+            [],
+        )
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+        conn.execute("DROP TABLE proxy_config", [])?;
+        conn.execute("ALTER TABLE proxy_config_new RENAME TO proxy_config", [])?;
+        log::info!("proxy_config 已扩展支持 claude_desktop");
         Ok(())
     }
 

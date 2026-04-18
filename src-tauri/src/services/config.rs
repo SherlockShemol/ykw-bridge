@@ -121,6 +121,9 @@ impl ConfigService {
         match app_type {
             AppType::Codex => Self::sync_codex_live(config, &current_id, &provider)?,
             AppType::Claude => Self::sync_claude_live(config, &current_id, &provider)?,
+            AppType::ClaudeDesktop => {
+                // Claude Desktop live config is managed by the local gateway profile writer.
+            }
             AppType::Gemini => Self::sync_gemini_live(config, &current_id, &provider)?,
             AppType::OpenCode => {
                 // OpenCode uses additive mode, no live sync needed

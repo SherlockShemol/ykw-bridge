@@ -228,6 +228,7 @@ impl Database {
             Err(rusqlite::Error::QueryReturnedNoRows) => {
                 // 如果不存在，创建默认配置
                 self.init_proxy_config_rows().await?;
+                self.ensure_proxy_config_row_exists(&app_type_owned)?;
                 Ok(AppProxyConfig {
                     app_type: app_type_owned,
                     enabled: false,
@@ -252,6 +253,7 @@ impl Database {
         &self,
         config: AppProxyConfig,
     ) -> Result<(), AppError> {
+        self.ensure_proxy_config_row_exists(&config.app_type)?;
         let conn = lock_conn!(self.conn);
 
         conn.execute(
@@ -302,6 +304,7 @@ impl Database {
         let (retries, fb_timeout, idle_timeout, cb_fail, cb_succ, cb_timeout, cb_rate, cb_min) =
             match app_type {
                 "claude" => (6, 90, 180, 8, 3, 90, 0.7, 15),
+                "claude_desktop" => (6, 90, 180, 8, 3, 90, 0.7, 15),
                 "codex" => (3, 60, 120, 4, 2, 60, 0.6, 10),
                 "gemini" => (5, 60, 120, 4, 2, 60, 0.6, 10),
                 _ => (3, 60, 120, 4, 2, 60, 0.6, 10), // 默认值
@@ -331,7 +334,7 @@ impl Database {
         Ok(())
     }
 
-    /// 初始化 proxy_config 表的三行数据
+    /// 初始化 proxy_config 表的默认数据
     ///
     /// 使用与 schema.rs seed 相同的 per-app 默认值
     async fn init_proxy_config_rows(&self) -> Result<(), AppError> {
@@ -346,6 +349,18 @@ impl Database {
                 circuit_failure_threshold, circuit_success_threshold, circuit_timeout_seconds,
                 circuit_error_rate_threshold, circuit_min_requests
             ) VALUES ('claude', 6, 90, 180, 600, 8, 3, 90, 0.7, 15)",
+            [],
+        )
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+        // claude desktop experimental: 与 claude 采用同一组默认值
+        conn.execute(
+            "INSERT OR IGNORE INTO proxy_config (
+                app_type, max_retries,
+                streaming_first_byte_timeout, streaming_idle_timeout, non_streaming_timeout,
+                circuit_failure_threshold, circuit_success_threshold, circuit_timeout_seconds,
+                circuit_error_rate_threshold, circuit_min_requests
+            ) VALUES ('claude_desktop', 6, 90, 180, 600, 8, 3, 90, 0.7, 15)",
             [],
         )
         .map_err(|e| AppError::Database(e.to_string()))?;

@@ -66,10 +66,13 @@ export function EditProviderDialog({
         return;
       }
 
-      // OpenCode uses additive mode - each provider's config is stored independently in DB
-      // Reading live config would return the full opencode.json (with $schema, provider, mcp etc.)
-      // instead of just the provider fragment, causing incorrect nested structure on save
-      if (appId === "opencode") {
+      // Some apps use a derived/managed live config instead of storing the provider SSOT directly:
+      // - OpenCode live is the full opencode.json rather than a single provider fragment
+      // - Claude Desktop live is the generated managed gateway config (enterpriseConfig),
+      //   not the provider's original env-based settings
+      // In both cases, reading live here would cause the generated/runtime shape to overwrite
+      // the provider source config on save.
+      if (appId === "opencode" || appId === "claude_desktop") {
         if (!cancelled) {
           setLiveSettings(null);
           setHasLoadedLive(true);

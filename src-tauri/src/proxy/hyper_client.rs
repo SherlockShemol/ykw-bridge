@@ -59,6 +59,8 @@ type HyperClient = Client<
 fn global_hyper_client() -> &'static HyperClient {
     static CLIENT: OnceLock<HyperClient> = OnceLock::new();
     CLIENT.get_or_init(|| {
+        crate::rustls_provider::ensure_rustls_crypto_provider();
+
         let connector = HttpsConnectorBuilder::new()
             .with_webpki_roots()
             .https_or_http()

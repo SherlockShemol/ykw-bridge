@@ -60,11 +60,13 @@ impl Database {
 
     /// 获取通用配置片段
     pub fn get_config_snippet(&self, app_type: &str) -> Result<Option<String>, AppError> {
+        let app_type = crate::database::canonical_provider_app_type(app_type);
         self.get_setting(&format!("common_config_{app_type}"))
     }
 
     /// 检查通用配置片段是否被用户显式清空
     pub fn is_config_snippet_cleared(&self, app_type: &str) -> Result<bool, AppError> {
+        let app_type = crate::database::canonical_provider_app_type(app_type);
         Ok(self
             .get_setting(&Self::config_snippet_cleared_key(app_type))?
             .as_deref()
@@ -77,6 +79,7 @@ impl Database {
         app_type: &str,
         cleared: bool,
     ) -> Result<(), AppError> {
+        let app_type = crate::database::canonical_provider_app_type(app_type);
         let key = Self::config_snippet_cleared_key(app_type);
         if cleared {
             self.set_setting(&key, "true")
@@ -90,6 +93,7 @@ impl Database {
 
     /// 当前是否允许从 live 配置自动抽取通用配置片段
     pub fn should_auto_extract_config_snippet(&self, app_type: &str) -> Result<bool, AppError> {
+        let app_type = crate::database::canonical_provider_app_type(app_type);
         Ok(self.get_config_snippet(app_type)?.is_none()
             && !self.is_config_snippet_cleared(app_type)?)
     }
@@ -123,6 +127,7 @@ impl Database {
         app_type: &str,
         snippet: Option<String>,
     ) -> Result<(), AppError> {
+        let app_type = crate::database::canonical_provider_app_type(app_type);
         let key = format!("common_config_{app_type}");
         if let Some(value) = snippet {
             self.set_setting(&key, &value)

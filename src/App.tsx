@@ -82,6 +82,7 @@ import EnvPanel from "@/components/openclaw/EnvPanel";
 import ToolsPanel from "@/components/openclaw/ToolsPanel";
 import AgentsDefaultsPanel from "@/components/openclaw/AgentsDefaultsPanel";
 import OpenClawHealthBanner from "@/components/openclaw/OpenClawHealthBanner";
+import type { ProxyTakeoverStatus } from "@/types/proxy";
 
 type View =
   | "providers"
@@ -110,6 +111,7 @@ const HEADER_HEIGHT = 64; // px
 const STORAGE_KEY = "cc-switch-last-app";
 const VALID_APPS: AppId[] = [
   "claude",
+  "claude_desktop",
   "codex",
   "gemini",
   "opencode",
@@ -119,7 +121,7 @@ const VALID_APPS: AppId[] = [
 const getInitialApp = (): AppId => {
   const saved = localStorage.getItem(STORAGE_KEY) as AppId | null;
   if (saved && VALID_APPS.includes(saved)) {
-    return saved;
+    return saved === "claude_desktop" ? "claude" : saved;
   }
   return "claude";
 };
@@ -153,6 +155,17 @@ function App() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
 
+  const getTakeoverStatusForApp = (
+    takeoverStatus: ProxyTakeoverStatus | undefined,
+    app: AppId,
+  ) => {
+    if (!takeoverStatus) return false;
+    if (app === "claude_desktop") {
+      return takeoverStatus.claudeDesktop;
+    }
+    return takeoverStatus[app as keyof ProxyTakeoverStatus] ?? false;
+  };
+
   const [activeApp, setActiveApp] = useState<AppId>(getInitialApp);
   const [currentView, setCurrentView] = useState<View>(getInitialView);
   const [settingsDefaultTab, setSettingsDefaultTab] = useState("general");
@@ -168,13 +181,22 @@ function App() {
     isLinux() && (settingsData?.useAppWindowControls ?? false);
   const dragBarHeight = useAppWindowControls ? 32 : DEFAULT_DRAG_BAR_HEIGHT;
   const contentTopOffset = dragBarHeight + HEADER_HEIGHT;
-  const visibleApps: VisibleApps = settingsData?.visibleApps ?? {
+  const rawVisibleApps: VisibleApps = settingsData?.visibleApps ?? {
     claude: true,
+    claude_desktop: false,
     codex: true,
     gemini: true,
     opencode: true,
     openclaw: true,
   };
+  const visibleApps: VisibleApps =
+    rawVisibleApps.claude ||
+    rawVisibleApps.codex ||
+    rawVisibleApps.gemini ||
+    rawVisibleApps.opencode ||
+    rawVisibleApps.openclaw
+      ? rawVisibleApps
+      : { ...rawVisibleApps, claude: true };
 
   const getFirstVisibleApp = (): AppId => {
     if (visibleApps.claude) return "claude";
@@ -190,6 +212,12 @@ function App() {
       setActiveApp(getFirstVisibleApp());
     }
   }, [visibleApps, activeApp]);
+
+  useEffect(() => {
+    if (activeApp === "claude_desktop") {
+      setActiveApp("claude");
+    }
+  }, [activeApp]);
 
   // Fallback from sessions view when switching to an app without session support
   useEffect(() => {
@@ -232,7 +260,10 @@ function App() {
     takeoverStatus,
     status: proxyStatus,
   } = useProxyStatus();
-  const isCurrentAppTakeoverActive = takeoverStatus?.[activeApp] || false;
+  const isCurrentAppTakeoverActive = getTakeoverStatusForApp(
+    takeoverStatus,
+    activeApp,
+  );
   const activeProviderId = useMemo(() => {
     const target = proxyStatus?.active_targets?.find(
       (t) => t.app_type === activeApp,
@@ -255,7 +286,9 @@ function App() {
       currentView === "openclawAgents");
   const { data: openclawHealthWarnings = [] } =
     useOpenClawHealth(isOpenClawView);
-  const hasSkillsSupport = true;
+  const hasSkillsSupport = activeApp !== "openclaw";
+  const hasPromptSupport = activeApp !== "openclaw";
+  const hasMcpSupport = activeApp !== "openclaw";
   const hasSessionSupport =
     activeApp === "claude" ||
     activeApp === "codex" ||
@@ -1118,7 +1151,11 @@ function App() {
                 <h1 className="text-lg font-semibold">
                   {currentView === "settings" && t("settings.title")}
                   {currentView === "prompts" &&
-                    t("prompts.title", { appName: t(`apps.${activeApp}`) })}
+                    t("prompts.title", {
+                      appName: t(`apps.${activeApp}`, {
+                        defaultValue: activeApp,
+                      }),
+                    })}
                   {currentView === "skills" && t("skills.title")}
                   {currentView === "skillsDiscovery" && t("skills.title")}
                   {currentView === "mcp" && t("mcp.unifiedPanel.title")}
@@ -1401,15 +1438,17 @@ function App() {
                               >
                                 <Wrench className="flex-shrink-0 w-4 h-4" />
                               </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setCurrentView("prompts")}
-                                className="text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5"
-                                title={t("prompts.manage")}
-                              >
-                                <Book className="w-4 h-4" />
-                              </Button>
+                              {hasPromptSupport && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setCurrentView("prompts")}
+                                  className="text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5"
+                                  title={t("prompts.manage")}
+                                >
+                                  <Book className="w-4 h-4" />
+                                </Button>
+                              )}
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -1425,15 +1464,17 @@ function App() {
                               >
                                 <History className="flex-shrink-0 w-4 h-4" />
                               </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setCurrentView("mcp")}
-                                className="text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5"
-                                title={t("mcp.title")}
-                              >
-                                <McpIcon size={16} />
-                              </Button>
+                              {hasMcpSupport && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setCurrentView("mcp")}
+                                  className="text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5"
+                                  title={t("mcp.title")}
+                                >
+                                  <McpIcon size={16} />
+                                </Button>
+                              )}
                             </>
                           )}
                         </motion.div>

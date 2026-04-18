@@ -29,6 +29,7 @@ import {
 import type { ProxyStatus } from "@/types/proxy";
 import { useTranslation } from "react-i18next";
 import { AnimatePresence, motion } from "framer-motion";
+import { isLinux, isWindows } from "@/lib/platform";
 
 interface ProxyPanelProps {
   enableLocalProxy: boolean;
@@ -74,16 +75,26 @@ export function ProxyPanel({
 
   const handleTakeoverChange = async (appType: string, enabled: boolean) => {
     try {
+      const appLabel =
+        appType === "claude_desktop"
+          ? "Claude Desktop"
+          : appType === "claude"
+            ? "Claude"
+            : appType === "codex"
+              ? "Codex"
+              : appType === "gemini"
+                ? "Gemini"
+                : appType;
       await setTakeoverForApp.mutateAsync({ appType, enabled });
       toast.success(
         enabled
           ? t("proxy.takeover.enabled", {
-              app: appType,
-              defaultValue: `${appType} 接管已启用`,
+              app: appLabel,
+              defaultValue: `${appLabel} 接管已启用`,
             })
           : t("proxy.takeover.disabled", {
-              app: appType,
-              defaultValue: `${appType} 接管已关闭`,
+              app: appLabel,
+              defaultValue: `${appLabel} 接管已关闭`,
             }),
         { closeButton: true },
       );
@@ -252,23 +263,38 @@ export function ProxyPanel({
                   })}
                 </p>
                 <div className="grid gap-2 sm:grid-cols-3">
-                  {(["claude", "codex", "gemini"] as const).map((appType) => {
+                  {(
+                    [
+                      { id: "claude", label: "Claude" },
+                      !isWindows() && !isLinux()
+                        ? {
+                            id: "claude_desktop",
+                            label: "Claude Desktop",
+                          }
+                        : null,
+                      { id: "codex", label: "Codex" },
+                      { id: "gemini", label: "Gemini" },
+                    ].filter(Boolean) as Array<{
+                      id: string;
+                      label: string;
+                    }>
+                  ).map(({ id, label }) => {
                     const isEnabled =
-                      takeoverStatus?.[
-                        appType as keyof typeof takeoverStatus
-                      ] ?? false;
+                      id === "claude_desktop"
+                        ? (takeoverStatus?.claudeDesktop ?? false)
+                        : (takeoverStatus?.[
+                            id as keyof typeof takeoverStatus
+                          ] ?? false);
                     return (
                       <div
-                        key={appType}
+                        key={id}
                         className="flex items-center justify-between rounded-md border border-primary/20 bg-background/60 px-3 py-2"
                       >
-                        <span className="text-sm font-medium capitalize">
-                          {appType}
-                        </span>
+                        <span className="text-sm font-medium">{label}</span>
                         <Switch
                           checked={isEnabled}
                           onCheckedChange={(checked) =>
-                            handleTakeoverChange(appType, checked)
+                            handleTakeoverChange(id, checked)
                           }
                           disabled={setTakeoverForApp.isPending}
                         />

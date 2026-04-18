@@ -380,7 +380,7 @@ fn schema_create_tables_repairs_legacy_proxy_config_singleton_to_per_app() {
     let count: i32 = conn
         .query_row("SELECT COUNT(*) FROM proxy_config", [], |r| r.get(0))
         .expect("count rows");
-    assert_eq!(count, 3, "per-app proxy_config should have 3 rows");
+    assert_eq!(count, 4, "per-app proxy_config should have 4 rows");
 
     // 新结构下应能按 app_type 查询
     let _: i32 = conn
@@ -390,6 +390,72 @@ fn schema_create_tables_repairs_legacy_proxy_config_singleton_to_per_app() {
             |r| r.get(0),
         )
         .expect("query by app_type");
+    let _: i32 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM proxy_config WHERE app_type = 'claude_desktop'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("query desktop by app_type");
+}
+
+#[test]
+fn schema_create_tables_repairs_per_app_proxy_config_without_claude_desktop_support() {
+    let conn = Connection::open_in_memory().expect("open memory db");
+
+    conn.execute_batch(
+        r#"
+        CREATE TABLE proxy_config (
+            app_type TEXT PRIMARY KEY CHECK (app_type IN ('claude','codex','gemini')),
+            proxy_enabled INTEGER NOT NULL DEFAULT 0,
+            listen_address TEXT NOT NULL DEFAULT '127.0.0.1',
+            listen_port INTEGER NOT NULL DEFAULT 15721,
+            enable_logging INTEGER NOT NULL DEFAULT 1,
+            enabled INTEGER NOT NULL DEFAULT 0,
+            auto_failover_enabled INTEGER NOT NULL DEFAULT 0,
+            max_retries INTEGER NOT NULL DEFAULT 3,
+            streaming_first_byte_timeout INTEGER NOT NULL DEFAULT 60,
+            streaming_idle_timeout INTEGER NOT NULL DEFAULT 120,
+            non_streaming_timeout INTEGER NOT NULL DEFAULT 600,
+            circuit_failure_threshold INTEGER NOT NULL DEFAULT 4,
+            circuit_success_threshold INTEGER NOT NULL DEFAULT 2,
+            circuit_timeout_seconds INTEGER NOT NULL DEFAULT 60,
+            circuit_error_rate_threshold REAL NOT NULL DEFAULT 0.6,
+            circuit_min_requests INTEGER NOT NULL DEFAULT 10,
+            default_cost_multiplier TEXT NOT NULL DEFAULT '1',
+            pricing_model_source TEXT NOT NULL DEFAULT 'response',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        INSERT INTO proxy_config (app_type) VALUES ('claude');
+        INSERT INTO proxy_config (app_type) VALUES ('codex');
+        INSERT INTO proxy_config (app_type) VALUES ('gemini');
+        "#,
+    )
+    .expect("seed per-app proxy_config without desktop");
+
+    Database::create_tables_on_conn(&conn).expect("create tables should repair proxy_config");
+
+    let create_sql: String = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'proxy_config'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read proxy_config sql");
+    assert!(
+        create_sql.contains("claude_desktop"),
+        "proxy_config table definition should include claude_desktop"
+    );
+
+    let count: i32 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM proxy_config WHERE app_type = 'claude_desktop'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("count desktop row");
+    assert_eq!(count, 1, "claude_desktop row should be backfilled");
 }
 
 #[test]
@@ -520,7 +586,7 @@ fn migration_from_v3_8_schema_v1_to_current_schema_v3() {
     let proxy_rows: i64 = conn
         .query_row("SELECT COUNT(*) FROM proxy_config", [], |r| r.get(0))
         .expect("count proxy_config rows");
-    assert_eq!(proxy_rows, 3);
+    assert_eq!(proxy_rows, 4);
 
     // model_pricing 应具备默认数据（迁移时会 seed）
     let pricing_rows: i64 = conn
