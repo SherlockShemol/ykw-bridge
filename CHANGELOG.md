@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to CC Switch will be documented in this file.
+All notable changes to YKW Bridge will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -11,10 +11,10 @@ Development since v3.12.3 focuses on quota visibility, provider workflow upgrade
 
 ### Added
 
-- **Lightweight Mode**: Added a tray-only mode that destroys the main window and keeps CC Switch running from the system tray, with the window recreated when users reopen it.
+- **Lightweight Mode**: Added a tray-only mode that destroys the main window and keeps YKW Bridge running from the system tray, with the window recreated when users reopen it.
 - **Provider Model Auto-Fetch**: Added OpenAI-compatible `/v1/models` discovery for Claude, Codex, Gemini, OpenCode, and OpenClaw provider forms, including grouped dropdown selection and failure-specific error messages.
 - **Quota & Balance Visibility**: Added inline quota or balance display for official Claude / Codex / Gemini providers, GitHub Copilot premium interactions, Codex OAuth providers, Token Plan providers (Kimi / Zhipu GLM / MiniMax), and official balance queries for DeepSeek, StepFun, SiliconFlow, OpenRouter, and Novita AI. Copilot / ChatGPT OAuth and CLI subscription quota now only auto-poll for the currently active provider, preventing unnecessary API calls and misleading displays on non-current cards.
-- **Skills Discovery & Batch Updates**: Added SHA-256 based skill update detection, per-skill and batch update actions, a storage-location toggle between CC Switch and `~/.agents/skills`, and public `skills.sh` search integration.
+- **Skills Discovery & Batch Updates**: Added SHA-256 based skill update detection, per-skill and batch update actions, a storage-location toggle between YKW Bridge and `~/.agents/skills`, and public `skills.sh` search integration.
 - **Session Workflow Upgrades**: Added batch delete in Session Manager, a directory picker before launching Claude terminal restore commands, usage import from Claude / Codex / Gemini session logs without requiring proxy interception, and per-app usage filtering for Claude / Codex / Gemini dashboards.
 - **Codex OAuth Reverse Proxy**: Added ChatGPT Plus / Pro based Codex OAuth reverse proxy support for Claude provider cards, including managed OAuth login and inline subscription quota display.
 - **OpenCode / OpenClaw Stream Check Coverage**: Added OpenCode npm package mapping plus support for OpenClaw `openai-completions` and the remaining OpenClaw protocol variants in Stream Check.
@@ -376,7 +376,7 @@ This release introduces **OpenClaw** as the fifth supported application, a full 
 
 #### OpenClaw Support (New Application)
 
-- **OpenClaw Integration**: Full management support for OpenClaw as the fifth application in CC Switch, including provider switching, configuration panels (Env / Tools / Agents Defaults), Workspace file management (HEARTBEAT / BOOTSTRAP / BOOT), daily memory files, and additive overlay mode
+- **OpenClaw Integration**: Full management support for OpenClaw as the fifth application in YKW Bridge, including provider switching, configuration panels (Env / Tools / Agents Defaults), Workspace file management (HEARTBEAT / BOOTSTRAP / BOOT), daily memory files, and additive overlay mode
 - **OpenClaw Provider Presets**: 13+ built-in provider presets with brand icon and complete i18n (zh/en/ja)
 - **OpenClaw Form Fields**: Dedicated provider form with providerKey input, model allowlist auto-registration, and default model button
 - **OpenClaw Config Panels**: Env editor, Tools editor, and Agents Defaults editor backed by JSON5 read/write (`openclaw_config.rs`)
@@ -702,7 +702,7 @@ This release focuses on stability improvements and crash prevention.
 - **Proxy Panic Prevention** - Graceful degradation when HTTP client initialization fails due to invalid proxy settings; falls back to no_proxy mode (#560)
 - **UTF-8 Safety** - Fix potential panic when masking API keys or truncating logs containing multi-byte characters (Chinese, emoji, etc.) (#560)
 - **Default Proxy Port** - Change default port from 5000 to 15721 to avoid conflict with macOS AirPlay Receiver (#560)
-- **Windows Title** - Display "CC Switch" instead of default "Tauri app" in window title
+- **Windows Title** - Display "YKW Bridge" instead of default "Tauri app" in window title
 - **Windows/Linux Spacing** - Remove extra 28px blank space below native titlebar introduced in v3.9.0
 - **Flatpak Tray Icon** - Bundle libayatana-appindicator for tray icon support on Flatpak (#556)
 - **Provider Preset** - Correct casing from "AiGoCode" to "AIGoCode" to match official branding
@@ -755,7 +755,7 @@ This stable release includes all changes from `3.9.0-1`, `3.9.0-2`, and `3.9.0-3
 - **WebView Compatibility** - Add fallback for crypto.randomUUID() on older WebViews
 - **macOS Autostart** - Use `.app` bundle path to prevent terminal window popups
 - **Database** - Add missing schema migrations; show an error dialog on initialization failure with a retry option
-- **Import/Export** - Restrict SQL import to CC Switch exported backups only; refresh providers immediately after import
+- **Import/Export** - Restrict SQL import to YKW Bridge exported backups only; refresh providers immediately after import
 - **Prompts** - Allow saving prompts with empty content
 - **MCP Sync** - Skip sync when the target CLI app is not installed
 - **Common Config (Codex)** - Preserve MCP server `base_url` during extraction and remove provider-specific `model_providers` blocks
@@ -841,7 +841,7 @@ Second beta release focusing on proxy stability, import safety, and provider pre
 
 ### Fixed
 
-- **Import/Export** - Restrict SQL import to CC Switch exported backups only; refresh providers immediately after import
+- **Import/Export** - Restrict SQL import to YKW Bridge exported backups only; refresh providers immediately after import
 - **Proxy** - Respect existing Claude token when syncing; add fallback recovery for orphaned takeover state; remove global auto-start flag
 - **Windows** - Add minimum window size to Windows platform config
 - **UI** - Improve About section UI (#419) and unify header toolbar styling
@@ -1375,9 +1375,9 @@ v3.7.0 represents a major evolution from "Provider Switcher" to **"All-in-One AI
 - Refined UI/UX with better spacing, icons, and visual feedback
 - Enhanced tray menu functionality and responsiveness
 - **Standardized release artifact naming** - All platform releases now use consistent version-tagged filenames:
-  - macOS: `CC-Switch-v{version}-macOS.tar.gz` / `.zip`
-  - Windows: `CC-Switch-v{version}-Windows.msi` / `-Portable.zip`
-  - Linux: `CC-Switch-v{version}-Linux.AppImage` / `.deb`
+  - macOS: `YKW-Bridge-v{version}-macOS.tar.gz` / `.zip`
+  - Windows: `YKW-Bridge-v{version}-Windows.msi` / `-Portable.zip`
+  - Linux: `YKW-Bridge-v{version}-Linux.AppImage` / `.deb`
 
 ### 🐛 Bug Fixes
 

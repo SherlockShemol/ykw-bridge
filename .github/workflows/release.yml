@@ -12,6 +12,10 @@ concurrency:
   group: release-${{ github.ref_name }}
   cancel-in-progress: true
 
+env:
+  APP_NAME: YKW Bridge
+  RELEASE_ASSET_PREFIX: YKW-Bridge
+
 jobs:
   release:
     runs-on: ${{ matrix.os }}
@@ -136,12 +140,12 @@ jobs:
           fi
 
           # Collect .app as zip for unsigned direct download.
-          NEW_ZIP="CC-Switch-${VERSION}-macOS.zip"
+          NEW_ZIP="${RELEASE_ASSET_PREFIX}-${VERSION}-macOS.zip"
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "release-assets/$NEW_ZIP"
           echo "macOS zip ready: $NEW_ZIP"
 
           if [ -n "$DMG_PATH" ]; then
-            NEW_DMG="CC-Switch-${VERSION}-macOS.dmg"
+            NEW_DMG="${RELEASE_ASSET_PREFIX}-${VERSION}-macOS.dmg"
             cp "$DMG_PATH" "release-assets/$NEW_DMG"
             echo "macOS dmg ready: $NEW_DMG"
           else
@@ -162,7 +166,7 @@ jobs:
             $msi = Get-ChildItem -Path 'src-tauri/target/release/bundle' -Recurse -Include *.msi -ErrorAction SilentlyContinue | Select-Object -First 1
           }
           if ($null -ne $msi) {
-            $dest = "CC-Switch-$VERSION-Windows.msi"
+            $dest = "${env:RELEASE_ASSET_PREFIX}-$VERSION-Windows.msi"
             Copy-Item $msi.FullName (Join-Path release-assets $dest)
             Write-Host "Installer copied: $dest"
           } else {
@@ -170,24 +174,26 @@ jobs:
           }
           # 绿色版（portable）：仅可执行文件打 zip
           $exeCandidates = @(
+            'src-tauri/target/release/ykw-bridge.exe',
+            'src-tauri/target/x86_64-pc-windows-msvc/release/ykw-bridge.exe',
             'src-tauri/target/release/cc-switch.exe',
             'src-tauri/target/x86_64-pc-windows-msvc/release/cc-switch.exe'
           )
           $exePath = $exeCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
           if ($null -ne $exePath) {
-            $portableDir = 'release-assets/CC-Switch-Portable'
+            $portableDir = Join-Path 'release-assets' "${env:RELEASE_ASSET_PREFIX}-Portable"
             New-Item -ItemType Directory -Force -Path $portableDir | Out-Null
             Copy-Item $exePath $portableDir
             $portableIniPath = Join-Path $portableDir 'portable.ini'
             $portableContent = @(
-              '# CC Switch portable build marker',
+              '# YKW Bridge portable build marker',
               'portable=true'
             )
             $portableContent | Set-Content -Path $portableIniPath -Encoding UTF8
-            $portableZip = "release-assets/CC-Switch-$VERSION-Windows-Portable.zip"
+            $portableZip = "release-assets/${env:RELEASE_ASSET_PREFIX}-$VERSION-Windows-Portable.zip"
             Compress-Archive -Path "$portableDir/*" -DestinationPath $portableZip -Force
             Remove-Item -Recurse -Force $portableDir
-            Write-Host "Windows portable zip created: CC-Switch-$VERSION-Windows-Portable.zip"
+            Write-Host "Windows portable zip created: ${env:RELEASE_ASSET_PREFIX}-$VERSION-Windows-Portable.zip"
           } else {
             Write-Warning 'Portable exe not found'
           }
@@ -203,7 +209,7 @@ jobs:
           # AppImage for direct download.
           APPIMAGE=$(find src-tauri/target/release/bundle -name "*.AppImage" | head -1 || true)
           if [ -n "$APPIMAGE" ]; then
-            NEW_APPIMAGE="CC-Switch-${VERSION}-Linux-${ARCH}.AppImage"
+            NEW_APPIMAGE="${RELEASE_ASSET_PREFIX}-${VERSION}-Linux-${ARCH}.AppImage"
             cp "$APPIMAGE" "release-assets/$NEW_APPIMAGE"
             echo "AppImage copied: $NEW_APPIMAGE"
           else
@@ -212,16 +218,16 @@ jobs:
           # .deb for Debian/Ubuntu style installs.
           DEB=$(find src-tauri/target/release/bundle -name "*.deb" | head -1 || true)
           if [ -n "$DEB" ]; then
-            cp "$DEB" "release-assets/CC-Switch-${VERSION}-Linux-${ARCH}.deb"
-            echo "Deb package copied: CC-Switch-${VERSION}-Linux-${ARCH}.deb"
+            cp "$DEB" "release-assets/${RELEASE_ASSET_PREFIX}-${VERSION}-Linux-${ARCH}.deb"
+            echo "Deb package copied: ${RELEASE_ASSET_PREFIX}-${VERSION}-Linux-${ARCH}.deb"
           else
             echo "No .deb found (optional)"
           fi
           # .rpm for Fedora/RHEL/openSUSE style installs.
           RPM=$(find src-tauri/target/release/bundle -name "*.rpm" | head -1 || true)
           if [ -n "$RPM" ]; then
-            cp "$RPM" "release-assets/CC-Switch-${VERSION}-Linux-${ARCH}.rpm"
-            echo "RPM package copied: CC-Switch-${VERSION}-Linux-${ARCH}.rpm"
+            cp "$RPM" "release-assets/${RELEASE_ASSET_PREFIX}-${VERSION}-Linux-${ARCH}.rpm"
+            echo "RPM package copied: ${RELEASE_ASSET_PREFIX}-${VERSION}-Linux-${ARCH}.rpm"
           else
             echo "No .rpm found (optional)"
           fi
@@ -269,19 +275,19 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: CC Switch ${{ github.ref_name }}
+          name: ${{ env.APP_NAME }} ${{ github.ref_name }}
           prerelease: true
           body: |
-            ## CC Switch ${{ github.ref_name }}
+            ## ${{ env.APP_NAME }} ${{ github.ref_name }}
 
-            Claude Code 供应商切换工具
+            Claude Code + Claude Desktop 专版管理工具
 
             ### 下载
 
-            - **macOS**: `CC-Switch-${{ github.ref_name }}-macOS.dmg`（若已生成）或 `CC-Switch-${{ github.ref_name }}-macOS.zip`
-            - **Windows**: `CC-Switch-${{ github.ref_name }}-Windows.msi`（安装版）或 `CC-Switch-${{ github.ref_name }}-Windows-Portable.zip`（绿色版）
-            - **Linux (x86_64)**: `CC-Switch-${{ github.ref_name }}-Linux-x86_64.AppImage` / `.deb` / `.rpm`
-            - **Linux (ARM64)**: `CC-Switch-${{ github.ref_name }}-Linux-arm64.AppImage` / `.deb` / `.rpm`
+            - **macOS**: `${{ env.RELEASE_ASSET_PREFIX }}-${{ github.ref_name }}-macOS.dmg`（若已生成）或 `${{ env.RELEASE_ASSET_PREFIX }}-${{ github.ref_name }}-macOS.zip`
+            - **Windows**: `${{ env.RELEASE_ASSET_PREFIX }}-${{ github.ref_name }}-Windows.msi`（安装版）或 `${{ env.RELEASE_ASSET_PREFIX }}-${{ github.ref_name }}-Windows-Portable.zip`（绿色版）
+            - **Linux (x86_64)**: `${{ env.RELEASE_ASSET_PREFIX }}-${{ github.ref_name }}-Linux-x86_64.AppImage` / `.deb` / `.rpm`
+            - **Linux (ARM64)**: `${{ env.RELEASE_ASSET_PREFIX }}-${{ github.ref_name }}-Linux-arm64.AppImage` / `.deb` / `.rpm`
 
             ---
             当前 GitHub Release 以可下载安装包为主，不依赖自动更新签名或 Apple 公证。

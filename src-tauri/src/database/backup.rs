@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
 
 const YKW_BRIDGE_SQL_EXPORT_HEADER: &str = "-- YKW Bridge SQLite 导出";
-const LEGACY_CC_SWITCH_SQL_EXPORT_HEADER: &str = "-- CC Switch SQLite 导出";
+const LEGACY_PREDECESSOR_SQL_EXPORT_HEADER: &str = "-- CC Switch SQLite 导出";
 
 /// Tables whose data rows are skipped when exporting for WebDAV sync.
 const SYNC_SKIP_TABLES: &[&str] = &[
@@ -167,15 +167,15 @@ impl Database {
     fn validate_sql_export_header(sql: &str) -> Result<(), AppError> {
         let trimmed = sql.trim_start();
         if trimmed.starts_with(YKW_BRIDGE_SQL_EXPORT_HEADER)
-            || trimmed.starts_with(LEGACY_CC_SWITCH_SQL_EXPORT_HEADER)
+            || trimmed.starts_with(LEGACY_PREDECESSOR_SQL_EXPORT_HEADER)
         {
             return Ok(());
         }
 
         Err(AppError::localized(
             "backup.sql.invalid_format",
-            "仅支持导入由 YKW Bridge 或旧版 CC Switch 导出的 SQL 备份文件。",
-            "Only SQL backups exported by YKW Bridge or legacy CC Switch are supported.",
+            "仅支持导入由 YKW Bridge 或前代应用导出的 SQL 备份文件。",
+            "Only SQL backups exported by YKW Bridge or the predecessor app are supported.",
         ))
     }
 
