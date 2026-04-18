@@ -48,9 +48,9 @@ pub struct RequestContext {
     pub current_provider_id: String,
     /// 请求中的模型名称
     pub request_model: String,
-    /// 日志标签（如 "Claude"、"Codex"、"Gemini"）
+    /// 日志标签（如 "Claude"、"Claude Desktop"）
     pub tag: &'static str,
-    /// 应用类型字符串（如 "claude"、"codex"、"gemini"）
+    /// 应用类型字符串（如 "claude"、"claude_desktop"）
     pub app_type_str: &'static str,
     /// 应用类型（预留，目前通过 app_type_str 使用）
     #[allow(dead_code)]
@@ -111,7 +111,7 @@ impl RequestContext {
             .to_string();
 
         // 提取 Session ID
-        let session_result = extract_session_id(headers, body, app_type_str);
+        let session_result = extract_session_id(headers, body);
         let session_id = session_result.session_id.clone();
 
         log::debug!(
@@ -165,27 +165,6 @@ impl RequestContext {
             optimizer_config,
             copilot_optimizer_config,
         })
-    }
-
-    /// 从 URI 提取模型名称（Gemini 专用）
-    ///
-    /// Gemini API 的模型名称在 URI 中，格式如：
-    /// `/v1beta/models/gemini-pro:generateContent`
-    pub fn with_model_from_uri(mut self, uri: &axum::http::Uri) -> Self {
-        let endpoint = uri
-            .path_and_query()
-            .map(|pq| pq.as_str())
-            .unwrap_or(uri.path());
-
-        self.request_model = endpoint
-            .split('/')
-            .find(|s| s.starts_with("models/"))
-            .and_then(|s| s.strip_prefix("models/"))
-            .map(|s| s.split(':').next().unwrap_or(s))
-            .unwrap_or("unknown")
-            .to_string();
-
-        self
     }
 
     /// 创建 RequestForwarder

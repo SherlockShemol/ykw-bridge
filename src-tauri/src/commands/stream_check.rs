@@ -10,6 +10,17 @@ use crate::store::AppState;
 use std::collections::HashSet;
 use tauri::State;
 
+fn ensure_supported_stream_check_app(app_type: &AppType) -> Result<(), AppError> {
+    if matches!(app_type, AppType::Claude | AppType::ClaudeDesktop) {
+        Ok(())
+    } else {
+        Err(AppError::InvalidInput(format!(
+            "Stream health check only supports Claude apps, got '{}'",
+            app_type.as_str()
+        )))
+    }
+}
+
 /// 流式健康检查（单个供应商）
 #[tauri::command]
 pub async fn stream_check_provider(
@@ -18,9 +29,12 @@ pub async fn stream_check_provider(
     app_type: AppType,
     provider_id: String,
 ) -> Result<StreamCheckResult, AppError> {
+    ensure_supported_stream_check_app(&app_type)?;
     let config = state.db.get_stream_check_config()?;
 
-    let providers = state.db.get_all_providers(app_type.as_str())?;
+    let providers = state
+        .db
+        .get_all_providers(app_type.provider_storage_str())?;
     let provider = providers
         .get(&provider_id)
         .ok_or_else(|| AppError::Message(format!("供应商 {provider_id} 不存在")))?;
@@ -62,8 +76,11 @@ pub async fn stream_check_all_providers(
     app_type: AppType,
     proxy_targets_only: bool,
 ) -> Result<Vec<(String, StreamCheckResult)>, AppError> {
+    ensure_supported_stream_check_app(&app_type)?;
     let config = state.db.get_stream_check_config()?;
-    let providers = state.db.get_all_providers(app_type.as_str())?;
+    let providers = state
+        .db
+        .get_all_providers(app_type.provider_storage_str())?;
 
     let mut results = Vec::new();
     let allowed_ids: Option<HashSet<String>> = if proxy_targets_only {
@@ -244,7 +261,7 @@ async fn resolve_claude_api_format_override(
     copilot_state: &State<'_, CopilotAuthState>,
     auth_override: Option<&crate::proxy::providers::AuthInfo>,
 ) -> Result<Option<String>, AppError> {
-    if *app_type != AppType::Claude {
+    if !matches!(app_type, AppType::Claude | AppType::ClaudeDesktop) {
         return Ok(None);
     }
 

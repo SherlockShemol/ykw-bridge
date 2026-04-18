@@ -36,7 +36,7 @@ fn test_parse_valid_claude_deeplink() {
 
 #[test]
 fn test_parse_deeplink_with_notes() {
-    let url = "ykwbridge://v1/import?resource=provider&app=codex&name=Codex&homepage=https%3A%2F%2Fcodex.com&endpoint=https%3A%2F%2Fapi.codex.com&apiKey=key123&notes=Test%20notes";
+    let url = "ykwbridge://v1/import?resource=provider&app=claude&name=Claude&homepage=https%3A%2F%2Fclaude.ai&endpoint=https%3A%2F%2Fapi.anthropic.com&apiKey=key123&notes=Test%20notes";
 
     let request = parse_deeplink_url(url).unwrap();
 
@@ -118,19 +118,19 @@ fn test_infer_homepage() {
 // =============================================================================
 
 #[test]
-fn test_build_gemini_provider_with_model() {
+fn test_build_claude_provider_with_model() {
     use super::provider::build_provider_from_request;
 
     let request = DeepLinkImportRequest {
         version: "v1".to_string(),
         resource: "provider".to_string(),
-        app: Some("gemini".to_string()),
-        name: Some("Test Gemini".to_string()),
+        app: Some("claude".to_string()),
+        name: Some("Test Claude".to_string()),
         homepage: Some("https://example.com".to_string()),
         endpoint: Some("https://api.example.com".to_string()),
         api_key: Some("test-api-key".to_string()),
         icon: None,
-        model: Some("gemini-2.0-flash".to_string()),
+        model: Some("claude-sonnet-4".to_string()),
         notes: None,
         haiku_model: None,
         sonnet_model: None,
@@ -154,10 +154,10 @@ fn test_build_gemini_provider_with_model() {
         usage_auto_interval: None,
     };
 
-    let provider = build_provider_from_request(&AppType::Gemini, &request).unwrap();
+    let provider = build_provider_from_request(&AppType::Claude, &request).unwrap();
 
     // Verify provider basic info
-    assert_eq!(provider.name, "Test Gemini");
+    assert_eq!(provider.name, "Test Claude");
     assert_eq!(
         provider.website_url,
         Some("https://example.com".to_string())
@@ -165,55 +165,9 @@ fn test_build_gemini_provider_with_model() {
 
     // Verify settings_config structure
     let env = provider.settings_config["env"].as_object().unwrap();
-    assert_eq!(env["GEMINI_API_KEY"], "test-api-key");
-    assert_eq!(env["GOOGLE_GEMINI_BASE_URL"], "https://api.example.com");
-    assert_eq!(env["GEMINI_MODEL"], "gemini-2.0-flash");
-}
-
-#[test]
-fn test_build_gemini_provider_without_model() {
-    use super::provider::build_provider_from_request;
-
-    let request = DeepLinkImportRequest {
-        version: "v1".to_string(),
-        resource: "provider".to_string(),
-        app: Some("gemini".to_string()),
-        name: Some("Test Gemini".to_string()),
-        homepage: Some("https://example.com".to_string()),
-        endpoint: Some("https://api.example.com".to_string()),
-        api_key: Some("test-api-key".to_string()),
-        icon: None,
-        model: None,
-        notes: None,
-        haiku_model: None,
-        sonnet_model: None,
-        opus_model: None,
-        config: None,
-        config_format: None,
-        config_url: None,
-        apps: None,
-        repo: None,
-        directory: None,
-        branch: None,
-        content: None,
-        description: None,
-        enabled: None,
-        usage_enabled: None,
-        usage_script: None,
-        usage_api_key: None,
-        usage_base_url: None,
-        usage_access_token: None,
-        usage_user_id: None,
-        usage_auto_interval: None,
-    };
-
-    let provider = build_provider_from_request(&AppType::Gemini, &request).unwrap();
-
-    let env = provider.settings_config["env"].as_object().unwrap();
-    assert_eq!(env["GEMINI_API_KEY"], "test-api-key");
-    assert_eq!(env["GOOGLE_GEMINI_BASE_URL"], "https://api.example.com");
-    // Model should not be present
-    assert!(env.get("GEMINI_MODEL").is_none());
+    assert_eq!(env["ANTHROPIC_AUTH_TOKEN"], "test-api-key");
+    assert_eq!(env["ANTHROPIC_BASE_URL"], "https://api.example.com");
+    assert_eq!(env["ANTHROPIC_MODEL"], "claude-sonnet-4");
 }
 
 #[test]
@@ -322,7 +276,7 @@ fn test_parse_and_merge_config_url_override() {
 
 #[test]
 fn test_import_prompt_allows_space_in_base64_content() {
-    let url = "ykwbridge://v1/import?resource=prompt&app=codex&name=PromptPlus&content=Pj4+";
+    let url = "ykwbridge://v1/import?resource=prompt&app=claude&name=PromptPlus&content=Pj4+";
     let request = parse_deeplink_url(url).unwrap();
 
     // URL decoded content may have "+" become space
@@ -333,7 +287,7 @@ fn test_import_prompt_allows_space_in_base64_content() {
 
     let prompt_id = import_prompt_from_deeplink(&state, request.clone()).expect("import prompt");
 
-    let prompts = state.db.get_prompts("codex").expect("get prompts");
+    let prompts = state.db.get_prompts("claude").expect("get prompts");
     let prompt = prompts.get(&prompt_id).expect("prompt saved");
 
     assert_eq!(prompt.content, ">>>");
@@ -346,15 +300,12 @@ fn test_import_prompt_allows_space_in_base64_content() {
 
 #[test]
 fn test_parse_mcp_apps() {
-    let apps = parse_mcp_apps("claude,codex").unwrap();
-    assert!(apps.claude);
-    assert!(apps.codex);
-    assert!(!apps.gemini);
+    let apps = parse_mcp_apps("claude").unwrap();
+    assert_eq!(apps.enabled_apps(), vec![AppType::Claude]);
+    assert!(!apps.is_empty());
 
-    let apps = parse_mcp_apps("gemini").unwrap();
-    assert!(!apps.claude);
-    assert!(!apps.codex);
-    assert!(apps.gemini);
+    let err = parse_mcp_apps("openclaw").unwrap_err();
+    assert!(err.to_string().contains("only 'claude' is supported"));
 
     let err = parse_mcp_apps("invalid").unwrap_err();
     assert!(err.to_string().contains("Invalid app"));
@@ -383,13 +334,13 @@ fn test_parse_mcp_deeplink() {
     let config = r#"{"mcpServers":{"test":{"command":"echo"}}}"#;
     let config_b64 = BASE64_STANDARD.encode(config);
     let url = format!(
-        "ykwbridge://v1/import?resource=mcp&apps=claude,codex&config={}&enabled=true",
+        "ykwbridge://v1/import?resource=mcp&apps=claude&config={}&enabled=true",
         config_b64
     );
 
     let request = parse_deeplink_url(&url).unwrap();
     assert_eq!(request.resource, "mcp");
-    assert_eq!(request.apps.unwrap(), "claude,codex");
+    assert_eq!(request.apps.unwrap(), "claude");
     assert_eq!(request.config.unwrap(), config_b64);
     assert!(request.enabled.unwrap());
 }

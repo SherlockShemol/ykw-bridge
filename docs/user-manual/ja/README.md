@@ -1,6 +1,6 @@
 # YKW Bridge ユーザーマニュアル
 
-> Claude Code / Codex / Gemini CLI / OpenCode / OpenClaw オールインワンアシスタント
+> Claude Code + Claude Desktop ユーザーマニュアル
 
 ## 目次構成
 
@@ -58,7 +58,7 @@ YKW Bridge ユーザーマニュアル
 
 | ファイル | 内容 |
 |------|------|
-| [2.1-add.md](./2-providers/2.1-add.md) | プリセットの使用、カスタム設定、統一プロバイダー |
+| [2.1-add.md](./2-providers/2.1-add.md) | プリセットの使用、カスタム設定、managed auth |
 | [2.2-switch.md](./2-providers/2.2-switch.md) | メイン画面での切り替え、トレイでの切り替え、反映方法 |
 | [2.3-edit.md](./2-providers/2.3-edit.md) | 設定の編集、API Key の変更、バックフィル機能 |
 | [2.4-sort-duplicate.md](./2-providers/2.4-sort-duplicate.md) | ドラッグで並べ替え、プロバイダーの複製、削除 |
@@ -68,11 +68,11 @@ YKW Bridge ユーザーマニュアル
 
 | ファイル | 内容 |
 |------|------|
-| [3.1-mcp.md](./3-extensions/3.1-mcp.md) | MCP プロトコル、サーバーの追加、アプリバインド |
+| [3.1-mcp.md](./3-extensions/3.1-mcp.md) | MCP プロトコル、サーバーの追加、Claude 同期 |
 | [3.2-prompts.md](./3-extensions/3.2-prompts.md) | プリセットの作成、有効化の切り替え、スマートバックフィル |
 | [3.3-skills.md](./3-extensions/3.3-skills.md) | スキルの発見、インストール・アンインストール、リポジトリ管理 |
 | [3.4-sessions.md](./3-extensions/3.4-sessions.md) | セッションマネージャー：閲覧、検索、再開、削除 |
-| [3.5-workspace.md](./3-extensions/3.5-workspace.md) | ワークスペースファイルとデイリーメモリー（OpenClaw） |
+| [3.5-workspace.md](./3-extensions/3.5-workspace.md) | ワークスペースファイルとデイリーメモリー機能 |
 
 ### 4. プロキシと高可用性
 
@@ -110,12 +110,11 @@ YKW Bridge ユーザーマニュアル
 ### v3.13.0 の注目機能
 
 - **軽量モード**：トレイへ最小化時にメインウィンドウを破棄、アイドル時のリソース使用量をほぼゼロに — 詳細は [1.5 個人設定](./1-getting-started/1.5-settings.md)
-- **クォータ・残高表示**：公式サブスクリプション系（Claude/Codex/Gemini/Copilot/Codex OAuth）はカードに自動表示、Token Plan および第三者残高は内蔵テンプレートでワンクリック有効化 — 詳細は [2.5 使用量クエリ](./2-providers/2.5-usage-query.md)
+- **クォータ・残高表示**：公式サブスクリプション系（Claude/Copilot/Codex OAuth）はカードに自動表示、Token Plan および第三者残高は内蔵テンプレートでワンクリック有効化 — 詳細は [2.5 使用量クエリ](./2-providers/2.5-usage-query.md)
 - **Codex OAuth リバースプロキシ**：ChatGPT アカウントで Claude Code 内から Codex サービスを再利用 — 詳細は [2.1 プロバイダーの追加](./2-providers/2.1-add.md)
-- **アプリ別トレイサブメニュー**：5 アプリ独立サブメニュー、メニューのオーバーフローを防止 — 詳細は [2.2 プロバイダーの切り替え](./2-providers/2.2-switch.md)
+- **トレイクイック切り替え**：トレイメニューから Claude 側のプロバイダーを素早く切り替え — 詳細は [2.2 プロバイダーの切り替え](./2-providers/2.2-switch.md)
 - **Skills の発見と一括更新**：SHA-256 ハッシュによる更新検出、一括更新、skills.sh 公式レジストリ検索 — 詳細は [3.3 Skills スキル管理](./3-extensions/3.3-skills.md)
 - **完全URLエンドポイントモード**：高度なオプションで `base_url` を完全なアップストリームエンドポイントとして扱う — 詳細は [2.1 プロバイダーの追加](./2-providers/2.1-add.md)
-- **OpenCode / OpenClaw ストリームチェック完全対応**：Stream Check パネルを 5 アプリ全対応に拡張 — 詳細は [4.5 モデルテスト](./4-proxy/4.5-model-test.md)
 
 ## コントリビュート
 

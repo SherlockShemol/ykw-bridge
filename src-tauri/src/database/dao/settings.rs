@@ -86,24 +86,20 @@ impl Database {
              DELETE FROM proxy_live_backup WHERE app_type NOT IN ('claude', 'claude_desktop');
              UPDATE mcp_servers
                 SET enabled_codex = 0,
-                    enabled_gemini = 0,
-                    enabled_opencode = 0;
+                    enabled_gemini = 0;
              DELETE FROM mcp_servers WHERE enabled_claude = 0;
              UPDATE skills
                 SET enabled_codex = 0,
-                    enabled_gemini = 0,
-                    enabled_opencode = 0;
+                    enabled_gemini = 0;
              DELETE FROM skills WHERE enabled_claude = 0;
              DELETE FROM settings
               WHERE key = 'universal_providers'
                  OR key = 'official_providers_seeded'
                  OR key LIKE 'common_config_codex%'
                  OR key LIKE 'common_config_gemini%'
-                 OR key LIKE 'common_config_opencode%'
                  OR key LIKE 'common_config_openclaw%'
                  OR key LIKE 'proxy_takeover_codex%'
                  OR key LIKE 'proxy_takeover_gemini%'
-                 OR key LIKE 'proxy_takeover_opencode%'
                  OR key LIKE 'proxy_takeover_openclaw%';
              INSERT OR IGNORE INTO proxy_config (
                 app_type, max_retries,
@@ -126,8 +122,7 @@ impl Database {
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
 
-        tx.commit()
-            .map_err(|e| AppError::Database(e.to_string()))?;
+        tx.commit().map_err(|e| AppError::Database(e.to_string()))?;
 
         Ok(true)
     }

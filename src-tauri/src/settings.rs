@@ -34,14 +34,6 @@ pub struct VisibleApps {
         alias = "claudeDesktop"
     )]
     pub claude_desktop: bool,
-    #[serde(default = "default_true")]
-    pub codex: bool,
-    #[serde(default = "default_true")]
-    pub gemini: bool,
-    #[serde(default = "default_true")]
-    pub opencode: bool,
-    #[serde(default = "default_true")]
-    pub openclaw: bool,
 }
 
 impl Default for VisibleApps {
@@ -49,10 +41,6 @@ impl Default for VisibleApps {
         Self {
             claude: true,
             claude_desktop: cfg!(target_os = "macos"),
-            codex: true,
-            gemini: true,
-            opencode: true,
-            openclaw: true,
         }
     }
 }
@@ -63,15 +51,13 @@ impl VisibleApps {
         match app {
             AppType::Claude => self.claude,
             AppType::ClaudeDesktop => self.claude_desktop,
-            AppType::Codex => self.codex,
-            AppType::Gemini => self.gemini,
-            AppType::OpenCode => self.opencode,
-            AppType::OpenClaw => self.openclaw,
         }
     }
 }
 
-fn backup_settings_file_for_claude_only_cleanup(path: &PathBuf) -> Result<Option<PathBuf>, AppError> {
+fn backup_settings_file_for_claude_only_cleanup(
+    path: &PathBuf,
+) -> Result<Option<PathBuf>, AppError> {
     if !path.exists() {
         return Ok(None);
     }
@@ -251,14 +237,6 @@ pub struct AppSettings {
     pub claude_desktop_profile_dir: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claude_desktop_launch_watchdog_enabled: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub codex_config_dir: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub gemini_config_dir: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub opencode_config_dir: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub openclaw_config_dir: Option<String>,
 
     // ===== 当前供应商 ID（设备级）=====
     /// 当前 Claude 供应商 ID（本地存储，优先于数据库 is_current）
@@ -267,18 +245,6 @@ pub struct AppSettings {
     /// 当前 Claude Desktop 供应商 ID（本地存储，与 Claude Code 分离）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current_provider_claude_desktop: Option<String>,
-    /// 当前 Codex 供应商 ID（本地存储，优先于数据库 is_current）
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub current_provider_codex: Option<String>,
-    /// 当前 Gemini 供应商 ID（本地存储，优先于数据库 is_current）
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub current_provider_gemini: Option<String>,
-    /// 当前 OpenCode 供应商 ID（本地存储，对 OpenCode 可能无意义，但保持结构一致）
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub current_provider_opencode: Option<String>,
-    /// 当前 OpenClaw 供应商 ID（本地存储，对 OpenClaw 可能无意义，但保持结构一致）
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub current_provider_openclaw: Option<String>,
 
     // ===== Skill 同步设置 =====
     /// Skill 同步方式：auto（默认，优先 symlink）、symlink、copy
@@ -348,16 +314,8 @@ impl Default for AppSettings {
             claude_desktop_app_path: None,
             claude_desktop_profile_dir: None,
             claude_desktop_launch_watchdog_enabled: None,
-            codex_config_dir: None,
-            gemini_config_dir: None,
-            opencode_config_dir: None,
-            openclaw_config_dir: None,
             current_provider_claude: None,
             current_provider_claude_desktop: None,
-            current_provider_codex: None,
-            current_provider_gemini: None,
-            current_provider_opencode: None,
-            current_provider_openclaw: None,
             skill_sync_method: SyncMethod::default(),
             skill_storage_location: SkillStorageLocation::default(),
             webdav_sync: None,
@@ -402,34 +360,6 @@ impl AppSettings {
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string());
 
-        self.codex_config_dir = self
-            .codex_config_dir
-            .as_ref()
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string());
-
-        self.gemini_config_dir = self
-            .gemini_config_dir
-            .as_ref()
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string());
-
-        self.opencode_config_dir = self
-            .opencode_config_dir
-            .as_ref()
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string());
-
-        self.openclaw_config_dir = self
-            .openclaw_config_dir
-            .as_ref()
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string());
-
         self.language = self
             .language
             .as_ref()
@@ -468,27 +398,10 @@ impl AppSettings {
 
         self.visible_apps = None;
         self.current_provider_claude_desktop = None;
-        self.codex_config_dir = None;
-        self.gemini_config_dir = None;
-        self.opencode_config_dir = None;
-        self.openclaw_config_dir = None;
-        self.current_provider_codex = None;
-        self.current_provider_gemini = None;
-        self.current_provider_opencode = None;
-        self.current_provider_openclaw = None;
     }
 
     fn needs_claude_only_cleanup(&self) -> bool {
-        self.visible_apps.is_some()
-            || self.codex_config_dir.is_some()
-            || self.gemini_config_dir.is_some()
-            || self.opencode_config_dir.is_some()
-            || self.openclaw_config_dir.is_some()
-            || self.current_provider_claude_desktop.is_some()
-            || self.current_provider_codex.is_some()
-            || self.current_provider_gemini.is_some()
-            || self.current_provider_opencode.is_some()
-            || self.current_provider_openclaw.is_some()
+        self.visible_apps.is_some() || self.current_provider_claude_desktop.is_some()
     }
 
     fn load_from_file() -> Self {
@@ -695,38 +608,6 @@ pub fn claude_desktop_launch_watchdog_enabled() -> bool {
         .unwrap_or(false)
 }
 
-pub fn get_codex_override_dir() -> Option<PathBuf> {
-    let settings = settings_store().read().ok()?;
-    settings
-        .codex_config_dir
-        .as_ref()
-        .map(|p| resolve_override_path(p))
-}
-
-pub fn get_gemini_override_dir() -> Option<PathBuf> {
-    let settings = settings_store().read().ok()?;
-    settings
-        .gemini_config_dir
-        .as_ref()
-        .map(|p| resolve_override_path(p))
-}
-
-pub fn get_opencode_override_dir() -> Option<PathBuf> {
-    let settings = settings_store().read().ok()?;
-    settings
-        .opencode_config_dir
-        .as_ref()
-        .map(|p| resolve_override_path(p))
-}
-
-pub fn get_openclaw_override_dir() -> Option<PathBuf> {
-    let settings = settings_store().read().ok()?;
-    settings
-        .openclaw_config_dir
-        .as_ref()
-        .map(|p| resolve_override_path(p))
-}
-
 // ===== 当前供应商管理函数 =====
 
 /// 获取指定应用类型的当前供应商 ID（从本地 settings 读取）
@@ -737,10 +618,6 @@ pub fn get_current_provider(app_type: &AppType) -> Option<String> {
     let settings = settings_store().read().ok()?;
     match app_type {
         AppType::Claude | AppType::ClaudeDesktop => settings.current_provider_claude.clone(),
-        AppType::Codex => settings.current_provider_codex.clone(),
-        AppType::Gemini => settings.current_provider_gemini.clone(),
-        AppType::OpenCode => settings.current_provider_opencode.clone(),
-        AppType::OpenClaw => settings.current_provider_openclaw.clone(),
     }
 }
 
@@ -755,10 +632,6 @@ pub fn set_current_provider(app_type: &AppType, id: Option<&str>) -> Result<(), 
             settings.current_provider_claude = id_owned.clone();
             settings.current_provider_claude_desktop = None;
         }
-        AppType::Codex => settings.current_provider_codex = id_owned.clone(),
-        AppType::Gemini => settings.current_provider_gemini = id_owned.clone(),
-        AppType::OpenCode => settings.current_provider_opencode = id_owned.clone(),
-        AppType::OpenClaw => settings.current_provider_openclaw = id_owned.clone(),
     })
 }
 

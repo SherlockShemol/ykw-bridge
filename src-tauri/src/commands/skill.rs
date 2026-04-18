@@ -1,7 +1,7 @@
 //! Skills 命令层
 //!
 //! v3.10.0+ 统一管理架构：
-//! - 支持三应用开关（Claude/Codex/Gemini）
+//! - 仅支持 Claude Skills 开关
 //! - SSOT 存储在 ~/.ykw-bridge/skills/
 
 use crate::app_config::{AppType, InstalledSkill, UnmanagedSkill};
@@ -22,10 +22,7 @@ pub struct SkillServiceState(pub Arc<SkillService>);
 fn parse_app_type(app: &str) -> Result<AppType, String> {
     match app.to_lowercase().as_str() {
         "claude" => Ok(AppType::Claude),
-        "codex" => Ok(AppType::Codex),
-        "gemini" => Ok(AppType::Gemini),
-        "opencode" => Ok(AppType::OpenCode),
-        _ => Err(format!("不支持的 app 类型: {app}")),
+        _ => Err(format!("Skills 仅支持 claude，收到: {app}")),
     }
 }
 

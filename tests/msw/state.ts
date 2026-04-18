@@ -7,10 +7,9 @@ import type {
   Settings,
 } from "@/types";
 
-type ProvidersByApp = Record<AppId, Record<string, Provider>>;
-type CurrentProviderState = Record<AppId, string>;
-type McpConfigState = Record<AppId, Record<string, McpServer>>;
-type LiveProviderIdsByApp = Record<"opencode" | "openclaw", string[]>;
+type ProvidersByApp = Partial<Record<AppId, Record<string, Provider>>>;
+type CurrentProviderState = Partial<Record<AppId, string>>;
+type McpConfigState = Partial<Record<AppId, Record<string, McpServer>>>;
 
 const createDefaultProviders = (): ProvidersByApp => ({
   claude: {
@@ -32,64 +31,20 @@ const createDefaultProviders = (): ProvidersByApp => ({
     },
   },
   claude_desktop: {},
-  codex: {
-    "codex-1": {
-      id: "codex-1",
-      name: "Codex Default",
-      settingsConfig: {},
-      category: "official",
-      sortIndex: 0,
-      createdAt: Date.now(),
-    },
-    "codex-2": {
-      id: "codex-2",
-      name: "Codex Secondary",
-      settingsConfig: {},
-      category: "custom",
-      sortIndex: 1,
-      createdAt: Date.now() + 1,
-    },
-  },
-  gemini: {
-    "gemini-1": {
-      id: "gemini-1",
-      name: "Gemini Default",
-      settingsConfig: {
-        env: {
-          GEMINI_API_KEY: "test-key",
-          GOOGLE_GEMINI_BASE_URL: "https://generativelanguage.googleapis.com",
-        },
-      },
-      category: "official",
-      sortIndex: 0,
-      createdAt: Date.now(),
-    },
-  },
-  opencode: {},
-  openclaw: {},
 });
 
 const createDefaultCurrent = (): CurrentProviderState => ({
   claude: "claude-1",
   claude_desktop: "",
-  codex: "codex-1",
-  gemini: "gemini-1",
-  opencode: "",
-  openclaw: "",
 });
 
 let providers = createDefaultProviders();
 let current = createDefaultCurrent();
-let liveProviderIds: LiveProviderIdsByApp = {
-  opencode: [],
-  openclaw: [],
-};
 let settingsState: Settings = {
   showInTray: true,
   minimizeToTrayOnClose: true,
   enableClaudePluginIntegration: false,
   claudeConfigDir: "/default/claude",
-  codexConfigDir: "/default/codex",
   language: "zh",
 };
 let appConfigDirOverride: string | null = null;
@@ -99,17 +54,6 @@ const sessionMessageKey = (providerId: string, sourcePath: string) =>
 const createDefaultSessions = (): SessionMeta[] => {
   const now = Date.now();
   return [
-    {
-      providerId: "codex",
-      sessionId: "codex-session-1",
-      title: "Codex Session One",
-      summary: "Codex summary",
-      projectDir: "/mock/codex",
-      createdAt: now - 2000,
-      lastActiveAt: now - 1000,
-      sourcePath: "/mock/codex/session-1.jsonl",
-      resumeCommand: "codex resume codex-session-1",
-    },
     {
       providerId: "claude",
       sessionId: "claude-session-1",
@@ -125,13 +69,6 @@ const createDefaultSessions = (): SessionMeta[] => {
 };
 
 const createDefaultSessionMessages = (): Record<string, SessionMessage[]> => ({
-  [sessionMessageKey("codex", "/mock/codex/session-1.jsonl")]: [
-    {
-      role: "user",
-      content: "First codex message",
-      ts: Date.now() - 1000,
-    },
-  ],
   [sessionMessageKey("claude", "/mock/claude/session-1.jsonl")]: [
     {
       role: "user",
@@ -151,10 +88,6 @@ let mcpConfigs: McpConfigState = {
       enabled: true,
       apps: {
         claude: true,
-        codex: false,
-        gemini: false,
-        opencode: false,
-        openclaw: false,
       },
       server: {
         type: "stdio",
@@ -163,27 +96,6 @@ let mcpConfigs: McpConfigState = {
     },
   },
   claude_desktop: {},
-  codex: {
-    httpServer: {
-      id: "httpServer",
-      name: "HTTP Codex Server",
-      enabled: false,
-      apps: {
-        claude: false,
-        codex: true,
-        gemini: false,
-        opencode: false,
-        openclaw: false,
-      },
-      server: {
-        type: "http",
-        url: "http://localhost:3000",
-      },
-    },
-  },
-  gemini: {},
-  opencode: {},
-  openclaw: {},
 };
 
 const cloneProviders = (value: ProvidersByApp) =>
@@ -192,10 +104,6 @@ const cloneProviders = (value: ProvidersByApp) =>
 export const resetProviderState = () => {
   providers = createDefaultProviders();
   current = createDefaultCurrent();
-  liveProviderIds = {
-    opencode: [],
-    openclaw: [],
-  };
   sessionsState = createDefaultSessions();
   sessionMessagesState = createDefaultSessionMessages();
   settingsState = {
@@ -203,7 +111,6 @@ export const resetProviderState = () => {
     minimizeToTrayOnClose: true,
     enableClaudePluginIntegration: false,
     claudeConfigDir: "/default/claude",
-    codexConfigDir: "/default/codex",
     language: "zh",
   };
   appConfigDirOverride = null;
@@ -215,10 +122,6 @@ export const resetProviderState = () => {
         enabled: true,
         apps: {
           claude: true,
-          codex: false,
-          gemini: false,
-          opencode: false,
-          openclaw: false,
         },
         server: {
           type: "stdio",
@@ -227,27 +130,6 @@ export const resetProviderState = () => {
       },
     },
     claude_desktop: {},
-    codex: {
-      httpServer: {
-        id: "httpServer",
-        name: "HTTP Codex Server",
-        enabled: false,
-        apps: {
-          claude: false,
-          codex: true,
-          gemini: false,
-          opencode: false,
-          openclaw: false,
-        },
-        server: {
-          type: "http",
-          url: "http://localhost:3000",
-        },
-      },
-    },
-    gemini: {},
-    opencode: {},
-    openclaw: {},
   };
 };
 
@@ -255,17 +137,6 @@ export const getProviders = (appType: AppId) =>
   cloneProviders(providers)[appType] ?? {};
 
 export const getCurrentProviderId = (appType: AppId) => current[appType] ?? "";
-
-export const getLiveProviderIds = (appType: "opencode" | "openclaw") => [
-  ...liveProviderIds[appType],
-];
-
-export const setLiveProviderIds = (
-  appType: "opencode" | "openclaw",
-  ids: string[],
-) => {
-  liveProviderIds[appType] = [...ids];
-};
 
 export const setCurrentProviderId = (appType: AppId, providerId: string) => {
   current[appType] = providerId;
@@ -275,9 +146,7 @@ export const updateProviders = (
   appType: AppId,
   data: Record<string, Provider>,
 ) => {
-  providers[appType] = cloneProviders({ [appType]: data } as ProvidersByApp)[
-    appType
-  ];
+  providers[appType] = cloneProviders({ [appType]: data })[appType] ?? {};
 };
 
 export const setProviders = (
@@ -316,11 +185,12 @@ export const updateSortOrder = (
   appType: AppId,
   updates: { id: string; sortIndex: number }[],
 ) => {
-  if (!providers[appType]) return;
+  const appProviders = providers[appType];
+  if (!appProviders) return;
   updates.forEach(({ id, sortIndex }) => {
-    const provider = providers[appType][id];
+    const provider = appProviders[id];
     if (provider) {
-      providers[appType][id] = { ...provider, sortIndex };
+      appProviders[id] = { ...provider, sortIndex };
     }
   });
 };

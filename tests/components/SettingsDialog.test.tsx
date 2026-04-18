@@ -66,7 +66,6 @@ const createSettingsMock = (overrides: Partial<SettingsMock> = {}) => {
       enableClaudePluginIntegration: false,
       language: "zh",
       claudeConfigDir: "/claude",
-      codexConfigDir: "/codex",
     },
     isLoading: false,
     isSaving: false,
@@ -74,7 +73,6 @@ const createSettingsMock = (overrides: Partial<SettingsMock> = {}) => {
     appConfigDir: "/app-config",
     resolvedDirs: {
       claude: "/claude",
-      codex: "/codex",
     },
     requiresRestart: false,
     updateSettings: vi.fn(),
@@ -140,6 +138,21 @@ vi.mock("@/hooks/useImportExport", () => ({
 vi.mock("@/lib/api", () => ({
   settingsApi: {
     restart: vi.fn().mockResolvedValue(true),
+    getClaudeDesktopStatus: vi.fn().mockResolvedValue({
+      supported: false,
+      experimental: false,
+      appPath: "",
+      appExists: false,
+      binaryPath: "",
+      binaryExists: false,
+      profileDir: "",
+      configPath: "",
+      certificateInstalled: false,
+      certificatePath: "",
+      keyPath: "",
+      managedConfigExists: false,
+      proxyRunning: false,
+    }),
   },
 }));
 
@@ -205,6 +218,14 @@ vi.mock("@/components/settings/WindowSettings", () => ({
   ),
 }));
 
+vi.mock("@/components/settings/ClaudeDesktopSettings", () => ({
+  ClaudeDesktopSettings: () => <div>claude-desktop-settings</div>,
+}));
+
+vi.mock("@/hooks/useSkills", () => ({
+  useInstalledSkills: () => ({ data: [] }),
+}));
+
 vi.mock("@/components/settings/DirectorySettings", () => ({
   DirectorySettings: ({
     onBrowseDirectory,
@@ -221,7 +242,7 @@ vi.mock("@/components/settings/DirectorySettings", () => ({
       <button onClick={() => onResetDirectory("claude")}>
         reset-directory
       </button>
-      <button onClick={() => onDirectoryChange("codex", "/new/path")}>
+      <button onClick={() => onDirectoryChange("claude", "/new/path")}>
         change-directory
       </button>
       <button onClick={() => onBrowseAppConfig()}>browse-app-config</button>
@@ -452,7 +473,7 @@ describe("SettingsPage Component", () => {
 
     fireEvent.click(screen.getByText("change-directory"));
     expect(settingsMock.updateDirectory).toHaveBeenCalledWith(
-      "codex",
+      "claude",
       "/new/path",
     );
 

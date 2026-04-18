@@ -1,13 +1,14 @@
 import { useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { providersApi, settingsApi, type AppId } from "@/lib/api";
+import { providersApi, settingsApi } from "@/lib/api";
 import { syncCurrentProvidersLiveSafe } from "@/utils/postChangeSync";
 import { useSettingsQuery, useSaveSettingsMutation } from "@/lib/query";
 import type { Settings } from "@/types";
 import { useSettingsForm, type SettingsFormState } from "./useSettingsForm";
 import {
   useDirectorySettings,
+  type ConfigDirectoryApp,
   type ResolvedDirectories,
 } from "./useDirectorySettings";
 import { useSettingsMetadata } from "./useSettingsMetadata";
@@ -27,11 +28,11 @@ export interface UseSettingsResult {
   resolvedDirs: ResolvedDirectories;
   requiresRestart: boolean;
   updateSettings: (updates: Partial<SettingsFormState>) => void;
-  updateDirectory: (app: AppId, value?: string) => void;
+  updateDirectory: (app: ConfigDirectoryApp, value?: string) => void;
   updateAppConfigDir: (value?: string) => void;
-  browseDirectory: (app: AppId) => Promise<void>;
+  browseDirectory: (app: ConfigDirectoryApp) => Promise<void>;
   browseAppConfigDir: () => Promise<void>;
-  resetDirectory: (app: AppId) => Promise<void>;
+  resetDirectory: (app: ConfigDirectoryApp) => Promise<void>;
   resetAppConfigDir: () => Promise<void>;
   saveSettings: (
     overrides?: Partial<SettingsFormState>,
@@ -44,7 +45,7 @@ export interface UseSettingsResult {
   acknowledgeRestart: () => void;
 }
 
-export type { SettingsFormState, ResolvedDirectories };
+export type { SettingsFormState, ConfigDirectoryApp, ResolvedDirectories };
 
 const sanitizeDir = (value?: string | null): string | undefined => {
   if (!value) return undefined;
@@ -105,12 +106,7 @@ export function useSettings(): UseSettingsResult {
   const resetSettings = useCallback(() => {
     resetForm(data ?? null);
     syncLanguage(initialLanguage);
-    resetAllDirectories(
-      sanitizeDir(data?.claudeConfigDir),
-      sanitizeDir(data?.codexConfigDir),
-      sanitizeDir(data?.geminiConfigDir),
-      sanitizeDir(data?.opencodeConfigDir),
-    );
+    resetAllDirectories(sanitizeDir(data?.claudeConfigDir));
     setRequiresRestart(false);
   }, [
     data,
@@ -130,20 +126,12 @@ export function useSettings(): UseSettingsResult {
 
       try {
         const sanitizedClaudeDir = sanitizeDir(mergedSettings.claudeConfigDir);
-        const sanitizedCodexDir = sanitizeDir(mergedSettings.codexConfigDir);
-        const sanitizedGeminiDir = sanitizeDir(mergedSettings.geminiConfigDir);
-        const sanitizedOpencodeDir = sanitizeDir(
-          mergedSettings.opencodeConfigDir,
-        );
         const { webdavSync: _ignoredWebdavSync, ...restSettings } =
           mergedSettings;
 
         const payload: Settings = {
           ...restSettings,
           claudeConfigDir: sanitizedClaudeDir,
-          codexConfigDir: sanitizedCodexDir,
-          geminiConfigDir: sanitizedGeminiDir,
-          opencodeConfigDir: sanitizedOpencodeDir,
           language: mergedSettings.language,
         };
 
@@ -243,25 +231,14 @@ export function useSettings(): UseSettingsResult {
       try {
         const sanitizedAppDir = sanitizeDir(appConfigDir);
         const sanitizedClaudeDir = sanitizeDir(mergedSettings.claudeConfigDir);
-        const sanitizedCodexDir = sanitizeDir(mergedSettings.codexConfigDir);
-        const sanitizedGeminiDir = sanitizeDir(mergedSettings.geminiConfigDir);
-        const sanitizedOpencodeDir = sanitizeDir(
-          mergedSettings.opencodeConfigDir,
-        );
         const previousAppDir = initialAppConfigDir;
         const previousClaudeDir = sanitizeDir(data?.claudeConfigDir);
-        const previousCodexDir = sanitizeDir(data?.codexConfigDir);
-        const previousGeminiDir = sanitizeDir(data?.geminiConfigDir);
-        const previousOpencodeDir = sanitizeDir(data?.opencodeConfigDir);
         const { webdavSync: _ignoredWebdavSync, ...restSettings } =
           mergedSettings;
 
         const payload: Settings = {
           ...restSettings,
           claudeConfigDir: sanitizedClaudeDir,
-          codexConfigDir: sanitizedCodexDir,
-          geminiConfigDir: sanitizedGeminiDir,
-          opencodeConfigDir: sanitizedOpencodeDir,
           language: mergedSettings.language,
         };
 
@@ -358,17 +335,9 @@ export function useSettings(): UseSettingsResult {
           console.warn("[useSettings] Failed to refresh tray menu", error);
         }
 
-        // 如果 Claude/Codex/Gemini/OpenCode 的目录覆盖发生变化，则立即将"当前使用的供应商"写回对应应用的 live 配置
+        // Claude 配置目录覆盖变化后，立即将当前供应商写回 live 配置
         const claudeDirChanged = sanitizedClaudeDir !== previousClaudeDir;
-        const codexDirChanged = sanitizedCodexDir !== previousCodexDir;
-        const geminiDirChanged = sanitizedGeminiDir !== previousGeminiDir;
-        const opencodeDirChanged = sanitizedOpencodeDir !== previousOpencodeDir;
-        if (
-          claudeDirChanged ||
-          codexDirChanged ||
-          geminiDirChanged ||
-          opencodeDirChanged
-        ) {
+        if (claudeDirChanged) {
           const syncResult = await syncCurrentProvidersLiveSafe();
           if (!syncResult.ok) {
             console.warn(

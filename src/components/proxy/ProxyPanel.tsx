@@ -70,21 +70,13 @@ export function ProxyPanel({
   // 获取所有三个应用类型的故障转移队列
   // 启用自动故障转移后，将按队列优先级（P1→P2→...）选择供应商
   const { data: claudeQueue = [] } = useFailoverQueue("claude");
-  const { data: codexQueue = [] } = useFailoverQueue("codex");
-  const { data: geminiQueue = [] } = useFailoverQueue("gemini");
 
   const handleTakeoverChange = async (appType: string, enabled: boolean) => {
     try {
       const appLabel =
         appType === "claude_desktop"
           ? "Claude Desktop"
-          : appType === "claude"
-            ? "Claude"
-            : appType === "codex"
-              ? "Codex"
-              : appType === "gemini"
-                ? "Gemini"
-                : appType;
+          : "Claude";
       await setTakeoverForApp.mutateAsync({ appType, enabled });
       toast.success(
         enabled
@@ -272,8 +264,6 @@ export function ProxyPanel({
                             label: "Claude Desktop",
                           }
                         : null,
-                      { id: "codex", label: "Codex" },
-                      { id: "gemini", label: "Gemini" },
                     ].filter(Boolean) as Array<{
                       id: string;
                       label: string;
@@ -418,9 +408,7 @@ export function ProxyPanel({
               </div>
 
               {/* [6] Provider queues */}
-              {(claudeQueue.length > 0 ||
-                codexQueue.length > 0 ||
-                geminiQueue.length > 0) && (
+              {claudeQueue.length > 0 && (
                 <div className="pt-3 border-t border-border space-y-3">
                   <div className="flex items-center gap-2">
                     <ListOrdered className="h-3.5 w-3.5 text-muted-foreground" />
@@ -434,30 +422,6 @@ export function ProxyPanel({
                       appType="claude"
                       appLabel="Claude"
                       targets={claudeQueue.map((item) => ({
-                        id: item.providerId,
-                        name: item.providerName,
-                      }))}
-                      status={status}
-                    />
-                  )}
-
-                  {codexQueue.length > 0 && (
-                    <ProviderQueueGroup
-                      appType="codex"
-                      appLabel="Codex"
-                      targets={codexQueue.map((item) => ({
-                        id: item.providerId,
-                        name: item.providerName,
-                      }))}
-                      status={status}
-                    />
-                  )}
-
-                  {geminiQueue.length > 0 && (
-                    <ProviderQueueGroup
-                      appType="gemini"
-                      appLabel="Gemini"
-                      targets={geminiQueue.map((item) => ({
                         id: item.providerId,
                         name: item.providerName,
                       }))}

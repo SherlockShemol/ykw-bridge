@@ -20,16 +20,21 @@ export const AppCountBar: React.FC<AppCountBarProps> = ({
         {totalLabel}
       </Badge>
       <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
-        {appIds.map((app) => (
-          <Badge
-            key={app}
-            variant="secondary"
-            className={APP_ICON_MAP[app].badgeClass}
-          >
-            <span className="opacity-75">{APP_ICON_MAP[app].label}:</span>
-            <span className="font-bold ml-1">{counts[app] ?? 0}</span>
-          </Badge>
-        ))}
+        {appIds.map((app) => {
+          const config = APP_ICON_MAP[app];
+          if (!config) return null;
+
+          return (
+            <Badge
+              key={app}
+              variant="secondary"
+              className={config.badgeClass}
+            >
+              <span className="opacity-75">{config.label}:</span>
+              <span className="font-bold ml-1">{counts[app] ?? 0}</span>
+            </Badge>
+          );
+        })}
       </div>
     </div>
   );

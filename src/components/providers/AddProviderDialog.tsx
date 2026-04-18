@@ -28,6 +28,10 @@ export function AddProviderDialog({
   const isClaudeLikeApp = appId === "claude" || appId === "claude_desktop";
   const [isFormSubmitting, setIsFormSubmitting] = useState(false);
 
+  if (!isClaudeLikeApp) {
+    return null;
+  }
+
   const handleSubmit = useCallback(
     async (values: ProviderFormValues) => {
       const parsedConfig = JSON.parse(values.settingsConfig) as Record<
@@ -51,7 +55,7 @@ export function AddProviderDialog({
         providerData.meta?.custom_endpoints &&
         Object.keys(providerData.meta.custom_endpoints).length > 0;
 
-      if (!hasCustomEndpoints && values.presetCategory !== "omo") {
+      if (!hasCustomEndpoints) {
         const urlSet = new Set<string>();
 
         const addUrl = (rawUrl?: string) => {
@@ -109,7 +113,7 @@ export function AddProviderDialog({
       await onSubmit(providerData);
       onOpenChange(false);
     },
-    [appId, isClaudeLikeApp, onSubmit, onOpenChange],
+    [isClaudeLikeApp, onSubmit, onOpenChange],
   );
 
   const footer = (

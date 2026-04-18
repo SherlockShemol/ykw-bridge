@@ -1,13 +1,11 @@
 import { useMemo } from "react";
 import type { AppId } from "@/lib/api";
 import type { ProviderPreset } from "@/config/claudeProviderPresets";
-import type { CodexProviderPreset } from "@/config/codexProviderPresets";
 import type { ProviderMeta, EndpointCandidate } from "@/types";
-import { extractCodexBaseUrl } from "@/utils/providerConfigUtils";
 
 type PresetEntry = {
   id: string;
-  preset: ProviderPreset | CodexProviderPreset;
+  preset: ProviderPreset;
 };
 
 interface UseSpeedTestEndpointsProps {
@@ -15,7 +13,6 @@ interface UseSpeedTestEndpointsProps {
   selectedPresetId: string | null;
   presetEntries: PresetEntry[];
   baseUrl: string;
-  codexBaseUrl: string;
   initialData?: {
     settingsConfig?: Record<string, unknown>;
     meta?: ProviderMeta;
@@ -38,16 +35,10 @@ export function useSpeedTestEndpoints({
   selectedPresetId,
   presetEntries,
   baseUrl,
-  codexBaseUrl,
   initialData,
 }: UseSpeedTestEndpointsProps) {
-  const claudeEndpoints = useMemo<EndpointCandidate[]>(() => {
-    // Reuse this branch for Claude-like apps and Gemini (non-Codex)
-    if (
-      appId !== "claude" &&
-      appId !== "claude_desktop" &&
-      appId !== "gemini"
-    ) {
+  return useMemo<EndpointCandidate[]>(() => {
+    if (appId !== "claude" && appId !== "claude_desktop") {
       return [];
     }
 
@@ -84,22 +75,13 @@ export function useSpeedTestEndpoints({
     if (selectedPresetId && selectedPresetId !== "custom") {
       const entry = presetEntries.find((item) => item.id === selectedPresetId);
       if (entry) {
-        const preset = entry.preset as ProviderPreset & {
-          settingsConfig?: { env?: { GOOGLE_GEMINI_BASE_URL?: string } };
-          endpointCandidates?: string[];
-        };
-        // 添加预设自己的 baseUrl（兼容 Claude/Gemini）
+        const preset = entry.preset;
         const presetEnv = preset.settingsConfig as {
           env?: {
             ANTHROPIC_BASE_URL?: string;
-            GOOGLE_GEMINI_BASE_URL?: string;
           };
         };
-        const presetUrls = [
-          presetEnv?.env?.ANTHROPIC_BASE_URL,
-          presetEnv?.env?.GOOGLE_GEMINI_BASE_URL,
-        ];
-        presetUrls.forEach((u) => add(u));
+        add(presetEnv?.env?.ANTHROPIC_BASE_URL);
         // 添加预设的候选端点
         if (preset.endpointCandidates) {
           preset.endpointCandidates.forEach((url) => add(url));
@@ -109,57 +91,4 @@ export function useSpeedTestEndpoints({
 
     return Array.from(map.values());
   }, [appId, baseUrl, initialData, selectedPresetId, presetEntries]);
-
-  const codexEndpoints = useMemo<EndpointCandidate[]>(() => {
-    if (appId !== "codex") return [];
-
-    const map = new Map<string, EndpointCandidate>();
-    // 候选端点标记为 isCustom: false，表示来自预设或配置
-    // 已保存的自定义端点会在 EndpointSpeedTest 组件中通过 API 加载
-    const add = (url?: string, isCustom = false) => {
-      if (!url) return;
-      const sanitized = url.trim().replace(/\/+$/, "");
-      if (!sanitized || map.has(sanitized)) return;
-      map.set(sanitized, { url: sanitized, isCustom });
-    };
-
-    // 1. 当前 Codex Base URL
-    if (codexBaseUrl) {
-      add(codexBaseUrl);
-    }
-
-    // 2. 编辑模式：初始数据中的 URL
-    const initialCodexConfig = initialData?.settingsConfig as
-      | {
-          config?: string;
-        }
-      | undefined;
-    const configStr = initialCodexConfig?.config ?? "";
-    const extractedBaseUrl = extractCodexBaseUrl(configStr);
-    if (extractedBaseUrl) {
-      add(extractedBaseUrl);
-    }
-
-    // 3. 预设中的 endpointCandidates
-    if (selectedPresetId && selectedPresetId !== "custom") {
-      const entry = presetEntries.find((item) => item.id === selectedPresetId);
-      if (entry) {
-        const preset = entry.preset as CodexProviderPreset;
-        // 添加预设自己的 baseUrl
-        const presetConfig = preset.config || "";
-        const presetBaseUrl = extractCodexBaseUrl(presetConfig);
-        if (presetBaseUrl) {
-          add(presetBaseUrl);
-        }
-        // 添加预设的候选端点
-        if (preset.endpointCandidates) {
-          preset.endpointCandidates.forEach((url) => add(url));
-        }
-      }
-    }
-
-    return Array.from(map.values());
-  }, [appId, codexBaseUrl, initialData, selectedPresetId, presetEntries]);
-
-  return appId === "codex" ? codexEndpoints : claudeEndpoints;
 }

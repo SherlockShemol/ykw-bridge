@@ -65,7 +65,7 @@ impl Database {
             id TEXT PRIMARY KEY, name TEXT NOT NULL, server_config TEXT NOT NULL,
             description TEXT, homepage TEXT, docs TEXT, tags TEXT NOT NULL DEFAULT '[]',
             enabled_claude BOOLEAN NOT NULL DEFAULT 0, enabled_codex BOOLEAN NOT NULL DEFAULT 0,
-            enabled_gemini BOOLEAN NOT NULL DEFAULT 0, enabled_opencode BOOLEAN NOT NULL DEFAULT 0
+            enabled_gemini BOOLEAN NOT NULL DEFAULT 0
         )",
             [],
         )
@@ -92,7 +92,6 @@ impl Database {
             enabled_claude BOOLEAN NOT NULL DEFAULT 0,
             enabled_codex BOOLEAN NOT NULL DEFAULT 0,
             enabled_gemini BOOLEAN NOT NULL DEFAULT 0,
-            enabled_opencode BOOLEAN NOT NULL DEFAULT 0,
             installed_at INTEGER NOT NULL DEFAULT 0,
             content_hash TEXT,
             updated_at INTEGER NOT NULL DEFAULT 0
@@ -408,7 +407,7 @@ impl Database {
                         Self::set_user_version(conn, 3)?;
                     }
                     3 => {
-                        log::info!("迁移数据库从 v3 到 v4（OpenCode 支持）");
+                        log::info!("迁移数据库从 v3 到 v4（保留历史版本槽位）");
                         Self::migrate_v3_to_v4(conn)?;
                         Self::set_user_version(conn, 4)?;
                     }
@@ -436,6 +435,11 @@ impl Database {
                         log::info!("迁移数据库从 v8 到 v9（全面补充模型定价）");
                         Self::migrate_v8_to_v9(conn)?;
                         Self::set_user_version(conn, 9)?;
+                    }
+                    9 => {
+                        log::info!("迁移数据库从 v9 到 v10（移除 OpenCode 残留）");
+                        Self::migrate_v9_to_v10(conn)?;
+                        Self::set_user_version(conn, 10)?;
                     }
                     _ => {
                         return Err(AppError::Database(format!(
@@ -1063,27 +1067,10 @@ impl Database {
         Ok(())
     }
 
-    /// v3 -> v4 迁移：添加 OpenCode 支持
-    ///
-    /// 为 mcp_servers 和 skills 表添加 enabled_opencode 列。
+    /// v3 -> v4 迁移：保留历史版本槽位
     fn migrate_v3_to_v4(conn: &Connection) -> Result<(), AppError> {
-        // 为 mcp_servers 表添加 enabled_opencode 列
-        Self::add_column_if_missing(
-            conn,
-            "mcp_servers",
-            "enabled_opencode",
-            "BOOLEAN NOT NULL DEFAULT 0",
-        )?;
-
-        // 为 skills 表添加 enabled_opencode 列
-        Self::add_column_if_missing(
-            conn,
-            "skills",
-            "enabled_opencode",
-            "BOOLEAN NOT NULL DEFAULT 0",
-        )?;
-
-        log::info!("v3 -> v4 迁移完成：已添加 OpenCode 支持");
+        let _ = conn;
+        log::info!("v3 -> v4 迁移跳过：OpenCode 支持已移除");
         Ok(())
     }
 
@@ -1276,6 +1263,104 @@ impl Database {
             .map_err(|e| AppError::Database(format!("清空模型定价失败: {e}")))?;
         Self::seed_model_pricing(conn)?;
         log::info!("v8 -> v9 迁移完成：已刷新全部模型定价数据");
+        Ok(())
+    }
+
+    /// v9 -> v10: 移除 OpenCode 相关历史数据与列
+    fn migrate_v9_to_v10(conn: &Connection) -> Result<(), AppError> {
+        for table in [
+            "provider_endpoints",
+            "providers",
+            "prompts",
+            "provider_health",
+            "proxy_request_logs",
+            "stream_check_logs",
+            "usage_daily_rollups",
+            "proxy_live_backup",
+        ] {
+            if Self::table_exists(conn, table)? && Self::has_column(conn, table, "app_type")? {
+                conn.execute(
+                    &format!("DELETE FROM {table} WHERE app_type = 'opencode'"),
+                    [],
+                )
+                .map_err(|e| {
+                    AppError::Database(format!("清理 {table} 中的 OpenCode 数据失败: {e}"))
+                })?;
+            }
+        }
+
+        if Self::table_exists(conn, "settings")? {
+            conn.execute("DELETE FROM settings WHERE key LIKE '%opencode%'", [])
+                .map_err(|e| AppError::Database(format!("清理 OpenCode 设置失败: {e}")))?;
+        }
+
+        if Self::table_exists(conn, "mcp_servers")?
+            && Self::has_column(conn, "mcp_servers", "enabled_opencode")?
+        {
+            conn.execute_batch(
+                "CREATE TABLE mcp_servers_new (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    server_config TEXT NOT NULL,
+                    description TEXT,
+                    homepage TEXT,
+                    docs TEXT,
+                    tags TEXT NOT NULL DEFAULT '[]',
+                    enabled_claude BOOLEAN NOT NULL DEFAULT 0,
+                    enabled_codex BOOLEAN NOT NULL DEFAULT 0,
+                    enabled_gemini BOOLEAN NOT NULL DEFAULT 0
+                );
+                INSERT INTO mcp_servers_new (
+                    id, name, server_config, description, homepage, docs, tags,
+                    enabled_claude, enabled_codex, enabled_gemini
+                )
+                SELECT
+                    id, name, server_config, description, homepage, docs, tags,
+                    enabled_claude, enabled_codex, enabled_gemini
+                FROM mcp_servers;
+                DROP TABLE mcp_servers;
+                ALTER TABLE mcp_servers_new RENAME TO mcp_servers;",
+            )
+            .map_err(|e| AppError::Database(format!("重建 mcp_servers 表失败: {e}")))?;
+        }
+
+        if Self::table_exists(conn, "skills")?
+            && Self::has_column(conn, "skills", "enabled_opencode")?
+        {
+            conn.execute_batch(
+                "CREATE TABLE skills_new (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    description TEXT,
+                    directory TEXT NOT NULL,
+                    repo_owner TEXT,
+                    repo_name TEXT,
+                    repo_branch TEXT DEFAULT 'main',
+                    readme_url TEXT,
+                    enabled_claude BOOLEAN NOT NULL DEFAULT 0,
+                    enabled_codex BOOLEAN NOT NULL DEFAULT 0,
+                    enabled_gemini BOOLEAN NOT NULL DEFAULT 0,
+                    installed_at INTEGER NOT NULL DEFAULT 0,
+                    content_hash TEXT,
+                    updated_at INTEGER NOT NULL DEFAULT 0
+                );
+                INSERT INTO skills_new (
+                    id, name, description, directory, repo_owner, repo_name, repo_branch,
+                    readme_url, enabled_claude, enabled_codex, enabled_gemini,
+                    installed_at, content_hash, updated_at
+                )
+                SELECT
+                    id, name, description, directory, repo_owner, repo_name, repo_branch,
+                    readme_url, enabled_claude, enabled_codex, enabled_gemini,
+                    installed_at, content_hash, updated_at
+                FROM skills;
+                DROP TABLE skills;
+                ALTER TABLE skills_new RENAME TO skills;",
+            )
+            .map_err(|e| AppError::Database(format!("重建 skills 表失败: {e}")))?;
+        }
+
+        log::info!("v9 -> v10 迁移完成：已移除 OpenCode 数据与列");
         Ok(())
     }
 

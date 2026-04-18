@@ -26,7 +26,10 @@ const getTakeoverStatusForApp = (
   if (app === "claude_desktop") {
     return takeover.claudeDesktop;
   }
-  return takeover[app as keyof ProxyTakeoverStatus] ?? false;
+  if (app === "claude") {
+    return takeover.claude;
+  }
+  return false;
 };
 
 export function ProxyToggle({ className, activeApp }: ProxyToggleProps) {
@@ -47,15 +50,7 @@ export function ProxyToggle({ className, activeApp }: ProxyToggleProps) {
   const appLabel =
     activeApp === "claude"
       ? "Claude"
-      : activeApp === "claude_desktop"
-        ? "Claude Desktop"
-        : activeApp === "codex"
-          ? "Codex"
-          : activeApp === "gemini"
-            ? "Gemini"
-            : activeApp === "opencode"
-              ? "OpenCode"
-              : "OpenClaw";
+      : "Claude Desktop";
 
   const tooltipText = takeoverEnabled
     ? isRunning

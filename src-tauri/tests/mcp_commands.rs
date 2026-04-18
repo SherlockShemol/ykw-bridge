@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fs;
 
 use serde_json::json;
@@ -183,124 +182,6 @@ fn import_mcp_from_claude_invalid_json_preserves_state() {
 }
 
 #[test]
-fn set_mcp_enabled_for_codex_writes_live_config() {
-    let _guard = test_mutex().lock().expect("acquire test mutex");
-    reset_test_fs();
-    let home = ensure_test_home();
-
-    // 创建 Codex 配置目录和文件
-    let codex_dir = home.join(".codex");
-    fs::create_dir_all(&codex_dir).expect("create codex dir");
-    fs::write(
-        codex_dir.join("auth.json"),
-        r#"{"OPENAI_API_KEY":"test-key"}"#,
-    )
-    .expect("create auth.json");
-    fs::write(codex_dir.join("config.toml"), "").expect("create empty config.toml");
-
-    let mut config = MultiAppConfig::default();
-    config.ensure_app(&AppType::Codex);
-
-    // v3.7.0: 使用统一结构
-    config.mcp.servers = Some(HashMap::new());
-    config.mcp.servers.as_mut().unwrap().insert(
-        "codex-server".into(),
-        McpServer {
-            id: "codex-server".to_string(),
-            name: "Codex Server".to_string(),
-            server: json!({
-                "type": "stdio",
-                "command": "echo"
-            }),
-            apps: McpApps {
-                claude: false,
-                codex: false, // 初始未启用
-                gemini: false,
-                opencode: false,
-            },
-            description: None,
-            homepage: None,
-            docs: None,
-            tags: Vec::new(),
-        },
-    );
-
-    let state = create_test_state_with_config(&config).expect("create test state");
-
-    // v3.7.0: 使用 toggle_app 替代 set_enabled
-    McpService::toggle_app(&state, "codex-server", AppType::Codex, true)
-        .expect("toggle_app should succeed");
-
-    let servers = state.db.get_all_mcp_servers().expect("get all mcp servers");
-    let entry = servers.get("codex-server").expect("codex server exists");
-    assert!(
-        entry.apps.codex,
-        "server should have Codex app enabled after toggle"
-    );
-
-    let toml_path = ykw_bridge_lib::get_codex_config_path();
-    assert!(
-        toml_path.exists(),
-        "enabling server should trigger sync to ~/.codex/config.toml"
-    );
-    let toml_text = fs::read_to_string(&toml_path).expect("read codex config");
-    assert!(
-        toml_text.contains("codex-server"),
-        "codex config should include the enabled server definition"
-    );
-}
-
-#[test]
-fn enabling_codex_mcp_skips_when_codex_dir_missing() {
-    use support::create_test_state;
-
-    let _guard = test_mutex().lock().expect("acquire test mutex");
-    reset_test_fs();
-    let home = ensure_test_home();
-
-    // 确认 Codex 配置目录不存在（模拟“未安装/未运行过 Codex CLI”）
-    assert!(
-        !home.join(".codex").exists(),
-        "~/.codex should not exist in fresh test environment"
-    );
-
-    let state = create_test_state().expect("create test state");
-
-    // 先插入一个未启用 Codex 的 MCP 服务器（避免 upsert 触发同步）
-    McpService::upsert_server(
-        &state,
-        McpServer {
-            id: "codex-server".to_string(),
-            name: "Codex Server".to_string(),
-            server: json!({
-                "type": "stdio",
-                "command": "echo"
-            }),
-            apps: McpApps {
-                claude: false,
-                codex: false,
-                gemini: false,
-                opencode: false,
-            },
-            description: None,
-            homepage: None,
-            docs: None,
-            tags: Vec::new(),
-        },
-    )
-    .expect("insert server without syncing");
-
-    // 启用 Codex：目录缺失时应跳过写入（不创建 ~/.codex/config.toml）
-    McpService::toggle_app(&state, "codex-server", AppType::Codex, true)
-        .expect("toggle codex should succeed even when ~/.codex is missing");
-
-    assert!(
-        !home.join(".codex").exists(),
-        "~/.codex should still not exist after skipped sync"
-    );
-}
-
-#[test]
 fn upsert_mcp_server_disabling_app_removes_from_claude_live_config() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
     reset_test_fs();
@@ -324,7 +205,6 @@ fn upsert_mcp_server_disabling_app_removes_from_claude_live_config() {
                 claude: true,
                 codex: false,
                 gemini: false,
-                opencode: false,
             },
             description: None,
             homepage: None,
@@ -357,7 +237,6 @@ fn upsert_mcp_server_disabling_app_removes_from_claude_live_config() {
                 claude: false,
                 codex: false,
                 gemini: false,
-                opencode: false,
             },
             description: None,
             homepage: None,
@@ -372,140 +251,6 @@ fn upsert_mcp_server_disabling_app_removes_from_claude_live_config() {
     assert!(
         v.pointer("/mcpServers/echo").is_none(),
         "echo should be removed from Claude live config after disabling"
-    );
-}
-
-#[test]
-fn import_mcp_from_multiple_apps_merges_enabled_flags() {
-    let _guard = test_mutex().lock().expect("acquire test mutex");
-    reset_test_fs();
-    let home = ensure_test_home();
-
-    // 1) Claude: ~/.claude.json
-    let mcp_path = get_claude_mcp_path();
-    let claude_json = json!({
-        "mcpServers": {
-            "shared": {
-                "type": "stdio",
-                "command": "echo"
-            }
-        }
-    });
-    fs::write(
-        &mcp_path,
-        serde_json::to_string_pretty(&claude_json).expect("serialize claude mcp"),
-    )
-    .expect("seed ~/.claude.json");
-
-    // 2) Codex: ~/.codex/config.toml
-    let codex_dir = home.join(".codex");
-    fs::create_dir_all(&codex_dir).expect("create codex dir");
-    fs::write(
-        codex_dir.join("config.toml"),
-        r#"[mcp_servers.shared]
-type = "stdio"
-command = "echo"
-"#,
-    )
-    .expect("seed ~/.codex/config.toml");
-
-    let state = support::create_test_state().expect("create test state");
-
-    McpService::import_from_claude(&state).expect("import from claude");
-    McpService::import_from_codex(&state).expect("import from codex");
-
-    let servers = state.db.get_all_mcp_servers().expect("get all mcp servers");
-    let entry = servers.get("shared").expect("shared server exists");
-    assert!(entry.apps.claude, "shared should enable Claude");
-    assert!(entry.apps.codex, "shared should enable Codex");
-}
-
-#[test]
-fn import_mcp_from_gemini_sse_url_only_is_valid() {
-    let _guard = test_mutex().lock().expect("acquire test mutex");
-    reset_test_fs();
-    let home = ensure_test_home();
-
-    // Gemini MCP 位于 ~/.gemini/settings.json
-    let gemini_dir = home.join(".gemini");
-    fs::create_dir_all(&gemini_dir).expect("create gemini dir");
-    let settings_path = gemini_dir.join("settings.json");
-
-    // Gemini SSE：只包含 url（Gemini 不使用 type 字段）
-    let gemini_settings = json!({
-        "mcpServers": {
-            "sse-server": {
-                "url": "https://example.com/sse"
-            }
-        }
-    });
-    fs::write(
-        &settings_path,
-        serde_json::to_string_pretty(&gemini_settings).expect("serialize gemini settings"),
-    )
-    .expect("seed ~/.gemini/settings.json");
-
-    let state = support::create_test_state().expect("create test state");
-    let changed = McpService::import_from_gemini(&state).expect("import from gemini");
-    assert!(changed > 0, "should import at least 1 server");
-
-    let servers = state.db.get_all_mcp_servers().expect("get all mcp servers");
-    let entry = servers.get("sse-server").expect("sse-server exists");
-    assert!(entry.apps.gemini, "imported server should enable Gemini");
-    assert_eq!(
-        entry.server.get("type").and_then(|v| v.as_str()),
-        Some("sse"),
-        "Gemini url-only server should be normalized to type=sse in unified structure"
-    );
-}
-
-#[test]
-fn enabling_gemini_mcp_skips_when_gemini_dir_missing() {
-    use support::create_test_state;
-
-    let _guard = test_mutex().lock().expect("acquire test mutex");
-    reset_test_fs();
-    let home = ensure_test_home();
-
-    // 确认 Gemini 配置目录不存在（模拟“未安装/未运行过 Gemini CLI”）
-    assert!(
-        !home.join(".gemini").exists(),
-        "~/.gemini should not exist in fresh test environment"
-    );
-
-    let state = create_test_state().expect("create test state");
-
-    // 先插入一个未启用 Gemini 的 MCP 服务器（避免 upsert 触发同步）
-    McpService::upsert_server(
-        &state,
-        McpServer {
-            id: "gemini-server".to_string(),
-            name: "Gemini Server".to_string(),
-            server: json!({
-                "type": "sse",
-                "url": "https://example.com/sse"
-            }),
-            apps: McpApps {
-                claude: false,
-                codex: false,
-                gemini: false,
-                opencode: false,
-            },
-            description: None,
-            homepage: None,
-            docs: None,
-            tags: Vec::new(),
-        },
-    )
-    .expect("insert server without syncing");
-
-    // 启用 Gemini：目录缺失时应跳过写入（不创建 ~/.gemini/settings.json）
-    McpService::toggle_app(&state, "gemini-server", AppType::Gemini, true)
-        .expect("toggle gemini should succeed even when ~/.gemini is missing");
-
-    assert!(
-        !home.join(".gemini").exists(),
-        "~/.gemini should still not exist after skipped sync"
     );
 }
 
@@ -543,7 +288,6 @@ fn enabling_claude_mcp_skips_when_claude_config_absent() {
                 claude: false,
                 codex: false,
                 gemini: false,
-                opencode: false,
             },
             description: None,
             homepage: None,
@@ -603,7 +347,6 @@ fn sync_all_enabled_removes_known_disabled_but_preserves_unknown_live_entries() 
                 claude: false,
                 codex: false,
                 gemini: false,
-                opencode: false,
             },
             description: None,
             homepage: None,
@@ -624,7 +367,6 @@ fn sync_all_enabled_removes_known_disabled_but_preserves_unknown_live_entries() 
                 claude: true,
                 codex: false,
                 gemini: false,
-                opencode: false,
             },
             description: None,
             homepage: None,

@@ -7,7 +7,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import JsonEditor from "@/components/JsonEditor";
 import type { AppId } from "@/lib/api/types";
-import { McpServer, McpServerSpec } from "@/types";
+import { McpApps, McpServer, McpServerSpec } from "@/types";
 import { mcpPresets, getMcpPresetWithDescription } from "@/config/mcpPresets";
 import McpWizardModal from "./McpWizardModal";
 import {
@@ -61,22 +61,12 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
   const [formDocs, setFormDocs] = useState(initialData?.docs || "");
   const [formTags, setFormTags] = useState(initialData?.tags?.join(", ") || "");
 
-  const [enabledApps, setEnabledApps] = useState<{
-    claude: boolean;
-    codex: boolean;
-    gemini: boolean;
-    opencode: boolean;
-    openclaw: boolean;
-  }>(() => {
+  const [enabledApps, setEnabledApps] = useState<McpApps>(() => {
     if (initialData?.apps) {
       return { ...initialData.apps };
     }
     return {
       claude: defaultEnabledApps.includes("claude"),
-      codex: false,
-      gemini: false,
-      opencode: false,
-      openclaw: false,
     };
   });
 

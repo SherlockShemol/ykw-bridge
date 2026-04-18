@@ -10,7 +10,16 @@ use crate::services::ProviderService;
 use crate::store::AppState;
 use crate::AppType;
 use serde_json::json;
-use std::str::FromStr;
+
+fn parse_provider_app(app: &str) -> Result<AppType, AppError> {
+    match app.trim().to_lowercase().as_str() {
+        "claude" => Ok(AppType::Claude),
+        "claude_desktop" | "claudedesktop" | "claude-desktop" => Ok(AppType::ClaudeDesktop),
+        other => Err(AppError::InvalidInput(format!(
+            "Deep link provider import only supports Claude apps, got '{other}'"
+        ))),
+    }
+}
 
 /// Import a provider from a deep link request
 ///
@@ -92,8 +101,7 @@ pub fn import_provider_from_deeplink(
         .ok_or_else(|| AppError::InvalidInput("Missing 'name' field for provider".to_string()))?;
 
     // Parse app type
-    let app_type = AppType::from_str(&app_str)
-        .map_err(|_| AppError::InvalidInput(format!("Invalid app type: {app_str}")))?;
+    let app_type = parse_provider_app(&app_str)?;
 
     // Build provider configuration based on app type
     let mut provider = build_provider_from_request(&app_type, &merged_request)?;
@@ -110,7 +118,7 @@ pub fn import_provider_from_deeplink(
     let provider_id = provider.id.clone();
 
     // Use ProviderService to add the provider
-    ProviderService::add(state, app_type.clone(), provider, true)?;
+    ProviderService::add(state, app_type.clone(), provider)?;
 
     // Add extra endpoints as custom endpoints (skip first one as it's the primary)
     for ep in all_endpoints.iter().skip(1) {
@@ -143,10 +151,6 @@ pub(crate) fn build_provider_from_request(
 ) -> Result<Provider, AppError> {
     let settings_config = match app_type {
         AppType::Claude | AppType::ClaudeDesktop => build_claude_settings(request),
-        AppType::Codex => build_codex_settings(request),
-        AppType::Gemini => build_gemini_settings(request),
-        AppType::OpenCode => build_opencode_settings(request),
-        AppType::OpenClaw => build_openclaw_settings(request),
     };
 
     // Build usage script configuration if provided
@@ -278,150 +282,6 @@ fn build_claude_settings(request: &DeepLinkImportRequest) -> serde_json::Value {
     json!({ "env": env })
 }
 
-/// Build Codex settings configuration
-fn build_codex_settings(request: &DeepLinkImportRequest) -> serde_json::Value {
-    // Generate a safe provider name identifier
-    let clean_provider_name = {
-        let raw: String = request
-            .name
-            .clone()
-            .unwrap_or_else(|| "custom".to_string())
-            .chars()
-            .filter(|c| !c.is_control())
-            .collect();
-        let lower = raw.to_lowercase();
-        let mut key: String = lower
-            .chars()
-            .map(|c| match c {
-                'a'..='z' | '0'..='9' | '_' => c,
-                _ => '_',
-            })
-            .collect();
-
-        // Remove leading/trailing underscores
-        while key.starts_with('_') {
-            key.remove(0);
-        }
-        while key.ends_with('_') {
-            key.pop();
-        }
-
-        if key.is_empty() {
-            "custom".to_string()
-        } else {
-            key
-        }
-    };
-
-    // Model name: use deeplink model or default
-    let model_name = request
-        .model
-        .as_deref()
-        .unwrap_or("gpt-5-codex")
-        .to_string();
-
-    // Endpoint: normalize trailing slashes (use primary endpoint only)
-    let endpoint = get_primary_endpoint(request)
-        .trim()
-        .trim_end_matches('/')
-        .to_string();
-
-    // Build config.toml content
-    let config_toml = format!(
-        r#"model_provider = "{clean_provider_name}"
-model = "{model_name}"
-model_reasoning_effort = "high"
-disable_response_storage = true
-
-[model_providers.{clean_provider_name}]
-name = "{clean_provider_name}"
-base_url = "{endpoint}"
-wire_api = "responses"
-requires_openai_auth = true
-"#
-    );
-
-    json!({
-        "auth": {
-            "OPENAI_API_KEY": request.api_key,
-        },
-        "config": config_toml
-    })
-}
-
-/// Build Gemini settings configuration
-fn build_gemini_settings(request: &DeepLinkImportRequest) -> serde_json::Value {
-    let mut env = serde_json::Map::new();
-    env.insert("GEMINI_API_KEY".to_string(), json!(request.api_key));
-    env.insert(
-        "GOOGLE_GEMINI_BASE_URL".to_string(),
-        json!(get_primary_endpoint(request)),
-    );
-
-    // Add model if provided
-    if let Some(model) = &request.model {
-        env.insert("GEMINI_MODEL".to_string(), json!(model));
-    }
-
-    json!({ "env": env })
-}
-
-/// Build OpenCode settings configuration
-fn build_opencode_settings(request: &DeepLinkImportRequest) -> serde_json::Value {
-    let endpoint = get_primary_endpoint(request);
-
-    // Build options object
-    let mut options = serde_json::Map::new();
-    if !endpoint.is_empty() {
-        options.insert("baseURL".to_string(), json!(endpoint));
-    }
-    if let Some(api_key) = &request.api_key {
-        options.insert("apiKey".to_string(), json!(api_key));
-    }
-
-    // Build models object
-    let mut models = serde_json::Map::new();
-    if let Some(model) = &request.model {
-        models.insert(model.clone(), json!({ "name": model }));
-    }
-
-    // Default to openai-compatible npm package
-    json!({
-        "npm": "@ai-sdk/openai-compatible",
-        "options": options,
-        "models": models
-    })
-}
-
-fn build_openclaw_settings(request: &DeepLinkImportRequest) -> serde_json::Value {
-    let endpoint = get_primary_endpoint(request);
-
-    // Build OpenClaw provider config
-    // Format: { baseUrl, apiKey, api, models }
-    let mut config = serde_json::Map::new();
-
-    if !endpoint.is_empty() {
-        config.insert("baseUrl".to_string(), json!(endpoint));
-    }
-
-    if let Some(api_key) = &request.api_key {
-        config.insert("apiKey".to_string(), json!(api_key));
-    }
-
-    // Default to OpenAI-compatible API
-    config.insert("api".to_string(), json!("openai-completions"));
-
-    // Build models array
-    if let Some(model) = &request.model {
-        config.insert(
-            "models".to_string(),
-            json!([{ "id": model, "name": model }]),
-        );
-    }
-
-    json!(config)
-}
-
 // =============================================================================
 // Config Merge Logic
 // =============================================================================
@@ -480,21 +340,15 @@ pub fn parse_and_merge_config(
     }
 
     match request.app.as_deref().unwrap_or("") {
-        "claude" => merge_claude_config(&mut merged, &config_value)?,
-        "codex" => merge_codex_config(&mut merged, &config_value)?,
-        "gemini" => merge_gemini_config(&mut merged, &config_value)?,
-        // Additive mode apps use JSON config directly; pass through as-is
-        "openclaw" | "opencode" => {
-            merge_additive_config(&mut merged, &config_value)?;
-        }
+        "claude" | "claude_desktop" => merge_claude_config(&mut merged, &config_value)?,
         "" => {
             // No app specified, skip merging
             return Ok(merged);
         }
         _ => {
             return Err(AppError::InvalidInput(format!(
-                "Invalid app type: {:?}",
-                request.app
+                "Deep link provider import only supports Claude apps, got {:?}",
+                request.app.as_deref().unwrap_or("")
             )))
         }
     }
@@ -565,149 +419,4 @@ fn merge_claude_config(
     }
 
     Ok(())
-}
-
-/// Merge Codex configuration from config file
-fn merge_codex_config(
-    request: &mut DeepLinkImportRequest,
-    config: &serde_json::Value,
-) -> Result<(), AppError> {
-    // Auto-fill API key from auth.OPENAI_API_KEY
-    if request.api_key.as_ref().is_none_or(|s| s.is_empty()) {
-        if let Some(api_key) = config
-            .get("auth")
-            .and_then(|v| v.get("OPENAI_API_KEY"))
-            .and_then(|v| v.as_str())
-        {
-            request.api_key = Some(api_key.to_string());
-        }
-    }
-
-    // Auto-fill endpoint and model from config string
-    if let Some(config_str) = config.get("config").and_then(|v| v.as_str()) {
-        // Parse TOML config string to extract base_url and model
-        if let Ok(toml_value) = toml::from_str::<toml::Value>(config_str) {
-            // Extract base_url from model_providers section
-            if request.endpoint.as_ref().is_none_or(|s| s.is_empty()) {
-                if let Some(base_url) = extract_codex_base_url(&toml_value) {
-                    request.endpoint = Some(base_url);
-                }
-            }
-
-            // Extract model
-            if request.model.is_none() {
-                if let Some(model) = toml_value.get("model").and_then(|v| v.as_str()) {
-                    request.model = Some(model.to_string());
-                }
-            }
-        }
-    }
-
-    // Auto-fill homepage from endpoint
-    if request.homepage.as_ref().is_none_or(|s| s.is_empty()) {
-        if let Some(endpoint) = request.endpoint.as_ref().filter(|s| !s.is_empty()) {
-            request.homepage = infer_homepage_from_endpoint(endpoint);
-            if request.homepage.is_none() {
-                request.homepage = Some("https://openai.com".to_string());
-            }
-        }
-    }
-
-    Ok(())
-}
-
-/// Merge Gemini configuration from config file
-fn merge_gemini_config(
-    request: &mut DeepLinkImportRequest,
-    config: &serde_json::Value,
-) -> Result<(), AppError> {
-    // Gemini uses flat env structure
-    if request.api_key.as_ref().is_none_or(|s| s.is_empty()) {
-        if let Some(api_key) = config.get("GEMINI_API_KEY").and_then(|v| v.as_str()) {
-            request.api_key = Some(api_key.to_string());
-        }
-    }
-
-    if request.endpoint.as_ref().is_none_or(|s| s.is_empty()) {
-        if let Some(base_url) = config
-            .get("GOOGLE_GEMINI_BASE_URL")
-            .or_else(|| config.get("GEMINI_BASE_URL"))
-            .and_then(|v| v.as_str())
-        {
-            request.endpoint = Some(base_url.to_string());
-        }
-    }
-
-    if request.model.is_none() {
-        request.model = config
-            .get("GEMINI_MODEL")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-    }
-
-    // Auto-fill homepage from endpoint
-    if request.homepage.as_ref().is_none_or(|s| s.is_empty()) {
-        if let Some(endpoint) = request.endpoint.as_ref().filter(|s| !s.is_empty()) {
-            request.homepage = infer_homepage_from_endpoint(endpoint);
-            if request.homepage.is_none() {
-                request.homepage = Some("https://ai.google.dev".to_string());
-            }
-        }
-    }
-
-    Ok(())
-}
-
-/// Merge configuration for additive mode apps (OpenClaw, OpenCode)
-///
-/// These apps use JSON config directly, so we only extract common fields
-/// (api_key, endpoint, model) from the config if not already set in URL params.
-fn merge_additive_config(
-    request: &mut DeepLinkImportRequest,
-    config: &serde_json::Value,
-) -> Result<(), AppError> {
-    // Extract api_key from config if not provided in URL
-    if request.api_key.as_ref().is_none_or(|s| s.is_empty()) {
-        if let Some(api_key) = config
-            .get("apiKey")
-            .or_else(|| config.get("api_key"))
-            .and_then(|v| v.as_str())
-        {
-            request.api_key = Some(api_key.to_string());
-        }
-    }
-
-    // Extract endpoint from config if not provided in URL
-    if request.endpoint.as_ref().is_none_or(|s| s.is_empty()) {
-        if let Some(base_url) = config
-            .get("baseUrl")
-            .or_else(|| config.get("base_url"))
-            .or_else(|| config.get("options").and_then(|o| o.get("baseURL")))
-            .and_then(|v| v.as_str())
-        {
-            request.endpoint = Some(base_url.to_string());
-        }
-    }
-
-    // Auto-fill homepage from endpoint
-    if request.homepage.as_ref().is_none_or(|s| s.is_empty()) {
-        if let Some(endpoint) = request.endpoint.as_ref().filter(|s| !s.is_empty()) {
-            request.homepage = infer_homepage_from_endpoint(endpoint);
-        }
-    }
-
-    Ok(())
-}
-
-/// Extract base_url from Codex TOML config
-fn extract_codex_base_url(toml_value: &toml::Value) -> Option<String> {
-    // Try to find base_url in model_providers section
-    if let Some(providers) = toml_value.get("model_providers").and_then(|v| v.as_table()) {
-        for (_key, provider) in providers.iter() {
-            if let Some(base_url) = provider.get("base_url").and_then(|v| v.as_str()) {
-                return Some(base_url.to_string());
-            }
-        }
-    }
-    None
 }

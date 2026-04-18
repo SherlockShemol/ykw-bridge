@@ -1,9 +1,8 @@
-use super::provider::{sanitize_claude_settings_for_live, ProviderService};
+use super::provider::sanitize_claude_settings_for_live;
 use crate::app_config::{AppType, MultiAppConfig};
 use crate::error::AppError;
 use crate::provider::Provider;
 use chrono::Utc;
-use serde_json::Value;
 use std::fs;
 use std::path::Path;
 
@@ -86,8 +85,7 @@ impl ConfigService {
     /// 同步当前供应商到对应的 live 配置。
     pub fn sync_current_providers_to_live(config: &mut MultiAppConfig) -> Result<(), AppError> {
         Self::sync_current_provider_for_app(config, &AppType::Claude)?;
-        Self::sync_current_provider_for_app(config, &AppType::Codex)?;
-        Self::sync_current_provider_for_app(config, &AppType::Gemini)?;
+        Self::sync_current_provider_for_app(config, &AppType::ClaudeDesktop)?;
         Ok(())
     }
 
@@ -119,57 +117,9 @@ impl ConfigService {
         };
 
         match app_type {
-            AppType::Codex => Self::sync_codex_live(config, &current_id, &provider)?,
             AppType::Claude => Self::sync_claude_live(config, &current_id, &provider)?,
             AppType::ClaudeDesktop => {
                 // Claude Desktop live config is managed by the local gateway profile writer.
-            }
-            AppType::Gemini => Self::sync_gemini_live(config, &current_id, &provider)?,
-            AppType::OpenCode => {
-                // OpenCode uses additive mode, no live sync needed
-                // OpenCode providers are managed directly in the config file
-            }
-            AppType::OpenClaw => {
-                // OpenClaw uses additive mode, no live sync needed
-                // OpenClaw providers are managed directly in the config file
-            }
-        }
-
-        Ok(())
-    }
-
-    fn sync_codex_live(
-        config: &mut MultiAppConfig,
-        provider_id: &str,
-        provider: &Provider,
-    ) -> Result<(), AppError> {
-        let settings = provider.settings_config.as_object().ok_or_else(|| {
-            AppError::Config(format!("供应商 {provider_id} 的 Codex 配置必须是对象"))
-        })?;
-        let auth = settings.get("auth").ok_or_else(|| {
-            AppError::Config(format!("供应商 {provider_id} 的 Codex 配置缺少 auth 字段"))
-        })?;
-        if !auth.is_object() {
-            return Err(AppError::Config(format!(
-                "供应商 {provider_id} 的 Codex auth 配置必须是 JSON 对象"
-            )));
-        }
-        let cfg_text = settings.get("config").and_then(Value::as_str);
-
-        crate::codex_config::write_codex_live_atomic(auth, cfg_text)?;
-        // 注意：MCP 同步在 v3.7.0 中已通过 McpService 进行，不再在此调用
-        // sync_enabled_to_codex 使用旧的 config.mcp.codex 结构，在新架构中为空
-        // MCP 的启用/禁用应通过 McpService::toggle_app 进行
-
-        let cfg_text_after = crate::codex_config::read_and_validate_codex_config_text()?;
-        if let Some(manager) = config.get_manager_mut(&AppType::Codex) {
-            if let Some(target) = manager.providers.get_mut(provider_id) {
-                if let Some(obj) = target.settings_config.as_object_mut() {
-                    obj.insert(
-                        "config".to_string(),
-                        serde_json::Value::String(cfg_text_after),
-                    );
-                }
             }
         }
 
@@ -193,37 +143,6 @@ impl ConfigService {
 
         let live_after = read_json_file::<serde_json::Value>(&settings_path)?;
         if let Some(manager) = config.get_manager_mut(&AppType::Claude) {
-            if let Some(target) = manager.providers.get_mut(provider_id) {
-                target.settings_config = live_after;
-            }
-        }
-
-        Ok(())
-    }
-
-    fn sync_gemini_live(
-        config: &mut MultiAppConfig,
-        provider_id: &str,
-        provider: &Provider,
-    ) -> Result<(), AppError> {
-        use crate::gemini_config::{env_to_json, read_gemini_env};
-
-        ProviderService::write_gemini_live(provider)?;
-
-        // 读回实际写入的内容并更新到配置中（包含 settings.json）
-        let live_after_env = read_gemini_env()?;
-        let settings_path = crate::gemini_config::get_gemini_settings_path();
-        let live_after_config = if settings_path.exists() {
-            crate::config::read_json_file(&settings_path)?
-        } else {
-            serde_json::json!({})
-        };
-        let mut live_after = env_to_json(&live_after_env);
-        if let Some(obj) = live_after.as_object_mut() {
-            obj.insert("config".to_string(), live_after_config);
-        }
-
-        if let Some(manager) = config.get_manager_mut(&AppType::Gemini) {
             if let Some(target) = manager.providers.get_mut(provider_id) {
                 target.settings_config = live_after;
             }

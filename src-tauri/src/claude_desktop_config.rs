@@ -37,7 +37,6 @@ const GIT_WORKTREES_FILENAME: &str = "git-worktrees.json";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LocalSessionTitleLookupPreference {
     CoworkFirst,
-    CodeFirst,
 }
 
 #[derive(Debug, Clone)]
@@ -1195,10 +1194,8 @@ fn lookup_recent_local_session_title_target(
 ) -> Result<LocalSessionTitleLookup, AppError> {
     let now_ms = current_unix_time_ms();
     let cutoff_ms = now_ms.saturating_sub(LOCAL_SESSION_TITLE_RECENT_FALLBACK_MAX_AGE_MS);
-    let (cowork_rank, code_rank) = match preference {
-        LocalSessionTitleLookupPreference::CoworkFirst => (0, 1),
-        LocalSessionTitleLookupPreference::CodeFirst => (1, 0),
-    };
+    let _ = preference;
+    let (cowork_rank, code_rank) = (0, 1);
     let mut candidates = Vec::new();
 
     let mut cowork_paths = Vec::new();
@@ -1298,10 +1295,6 @@ pub fn lookup_local_session_title_target(
     let direct = match preference {
         LocalSessionTitleLookupPreference::CoworkFirst => match lookup_cowork()? {
             LocalSessionTitleLookup::NotFound => lookup_code()?,
-            found => found,
-        },
-        LocalSessionTitleLookupPreference::CodeFirst => match lookup_code()? {
-            LocalSessionTitleLookup::NotFound => lookup_cowork()?,
             found => found,
         },
     };

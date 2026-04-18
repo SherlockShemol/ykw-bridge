@@ -3,7 +3,6 @@ import type {
   ProviderPreset,
   TemplateValueConfig,
 } from "@/config/claudeProviderPresets";
-import type { CodexProviderPreset } from "@/config/codexProviderPresets";
 import { applyTemplateValues } from "@/utils/providerConfigUtils";
 
 type TemplatePath = Array<string | number>;
@@ -11,7 +10,7 @@ type TemplateValueMap = Record<string, TemplateValueConfig>;
 
 interface PresetEntry {
   id: string;
-  preset: ProviderPreset | CodexProviderPreset;
+  preset: ProviderPreset;
 }
 
 interface UseTemplateValuesProps {

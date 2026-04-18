@@ -14,8 +14,8 @@ export interface TemplateValueConfig {
  * 预设供应商的视觉主题配置
  */
 export interface PresetTheme {
-  /** 图标类型：'claude' | 'codex' | 'gemini' | 'generic' */
-  icon?: "claude" | "codex" | "gemini" | "generic";
+  /** 图标类型：'claude' | 'generic' */
+  icon?: "claude" | "generic";
   /** 背景色（选中状态），支持 Tailwind 类名或 hex 颜色 */
   backgroundColor?: string;
   /** 文字色（选中状态），支持 Tailwind 类名或 hex 颜色 */

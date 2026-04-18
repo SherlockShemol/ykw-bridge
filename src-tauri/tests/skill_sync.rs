@@ -28,7 +28,7 @@ fn symlink_dir(src: &std::path::Path, dest: &std::path::Path) {
 }
 
 #[test]
-fn import_from_apps_respects_explicit_app_selection() {
+fn import_from_apps_filters_removed_app_flags() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
     reset_test_fs();
     let home = ensure_test_home();
@@ -38,11 +38,7 @@ fn import_from_apps_respects_explicit_app_selection() {
         "Shared",
     );
     write_skill(
-        &home
-            .join(".config")
-            .join("opencode")
-            .join("skills")
-            .join("shared-skill"),
+        &home.join(".codex").join("skills").join("shared-skill"),
         "Shared",
     );
 
@@ -53,10 +49,9 @@ fn import_from_apps_respects_explicit_app_selection() {
         vec![ImportSkillSelection {
             directory: "shared-skill".to_string(),
             apps: SkillApps {
-                claude: false,
-                codex: false,
-                gemini: false,
-                opencode: true,
+                claude: true,
+                codex: true,
+                gemini: true,
             },
         }],
     )
@@ -65,12 +60,12 @@ fn import_from_apps_respects_explicit_app_selection() {
     assert_eq!(imported.len(), 1, "expected exactly one imported skill");
     let skill = imported.first().expect("imported skill");
     assert!(
-        skill.apps.opencode,
-        "explicitly selected OpenCode app should remain enabled"
+        skill.apps.claude,
+        "explicit Claude selection should remain enabled"
     );
     assert!(
-        !skill.apps.claude && !skill.apps.codex && !skill.apps.gemini,
-        "import should no longer infer apps from every matching source path"
+        !skill.apps.codex && !skill.apps.gemini,
+        "import should strip removed app flags instead of persisting them"
     );
 }
 
@@ -86,10 +81,10 @@ fn sync_to_app_removes_disabled_and_orphaned_ssot_symlinks() {
     write_skill(&disabled_skill, "Disabled");
     write_skill(&orphan_skill, "Orphan");
 
-    let opencode_skills_dir = home.join(".config").join("opencode").join("skills");
-    fs::create_dir_all(&opencode_skills_dir).expect("create opencode skills dir");
-    symlink_dir(&disabled_skill, &opencode_skills_dir.join("disabled-skill"));
-    symlink_dir(&orphan_skill, &opencode_skills_dir.join("orphan-skill"));
+    let claude_skills_dir = home.join(".claude").join("skills");
+    fs::create_dir_all(&claude_skills_dir).expect("create claude skills dir");
+    symlink_dir(&disabled_skill, &claude_skills_dir.join("disabled-skill"));
+    symlink_dir(&orphan_skill, &claude_skills_dir.join("orphan-skill"));
 
     let state = create_test_state().expect("create test state");
     state
@@ -107,7 +102,6 @@ fn sync_to_app_removes_disabled_and_orphaned_ssot_symlinks() {
                 claude: false,
                 codex: false,
                 gemini: false,
-                opencode: false,
             },
             installed_at: 0,
             content_hash: None,
@@ -115,14 +109,14 @@ fn sync_to_app_removes_disabled_and_orphaned_ssot_symlinks() {
         })
         .expect("save disabled skill");
 
-    SkillService::sync_to_app(&state.db, &AppType::OpenCode).expect("reconcile skills");
+    SkillService::sync_to_app(&state.db, &AppType::Claude).expect("reconcile skills");
 
     assert!(
-        !opencode_skills_dir.join("disabled-skill").exists(),
-        "DB-known disabled skill should be removed from OpenCode live dir"
+        !claude_skills_dir.join("disabled-skill").exists(),
+        "DB-known disabled skill should be removed from Claude live dir"
     );
     assert!(
-        !opencode_skills_dir.join("orphan-skill").exists(),
+        !claude_skills_dir.join("orphan-skill").exists(),
         "orphaned symlink into SSOT should be cleaned up"
     );
 }
@@ -153,7 +147,6 @@ fn uninstall_skill_creates_backup_before_removing_ssot() {
                 claude: true,
                 codex: false,
                 gemini: false,
-                opencode: false,
             },
             installed_at: 123,
             content_hash: None,
@@ -226,7 +219,6 @@ fn restore_skill_backup_restores_files_to_ssot_and_current_app() {
                 claude: true,
                 codex: false,
                 gemini: false,
-                opencode: false,
             },
             installed_at: 456,
             content_hash: None,
@@ -252,7 +244,7 @@ fn restore_skill_backup_restores_files_to_ssot_and_current_app() {
     assert_eq!(restored.directory, "restore-skill");
     assert!(restored.apps.claude, "restored skill should enable Claude");
     assert!(
-        !restored.apps.codex && !restored.apps.gemini && !restored.apps.opencode,
+        !restored.apps.codex && !restored.apps.gemini,
         "restore should only enable the selected app"
     );
     assert!(
@@ -309,7 +301,6 @@ fn delete_skill_backup_removes_backup_directory() {
                 claude: true,
                 codex: false,
                 gemini: false,
-                opencode: false,
             },
             installed_at: 789,
             content_hash: None,
@@ -359,11 +350,7 @@ fn migration_snapshot_overrides_multi_source_directory_inference() {
         "Demo",
     );
     write_skill(
-        &home
-            .join(".config")
-            .join("opencode")
-            .join("skills")
-            .join("demo-skill"),
+        &home.join(".codex").join("skills").join("demo-skill"),
         "Demo",
     );
 
@@ -390,7 +377,7 @@ fn migration_snapshot_overrides_multi_source_directory_inference() {
         "legacy snapshot should preserve Claude enablement"
     );
     assert!(
-        !migrated.apps.opencode,
-        "migration should no longer infer OpenCode enablement from a duplicate directory alone"
+        !migrated.apps.codex,
+        "migration should no longer infer removed-app enablement from a duplicate directory alone"
     );
 }

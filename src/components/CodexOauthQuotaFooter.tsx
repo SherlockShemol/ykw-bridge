@@ -14,7 +14,7 @@ interface CodexOauthQuotaFooterProps {
  * Codex OAuth (ChatGPT Plus/Pro 反代) 订阅额度 footer
  *
  * 复用 SubscriptionQuotaView 的全部渲染逻辑（5 状态 × inline/expanded）。
- * 数据源切换为 ykw-bridge 自管的 OAuth token 而非 Codex CLI 凭据。
+ * 数据源切换为 ykw-bridge 自管的 OAuth token，而不是依赖外部客户端侧的本地凭据。
  */
 const CodexOauthQuotaFooter: React.FC<CodexOauthQuotaFooterProps> = ({
   meta,

@@ -101,13 +101,7 @@ export function useProxyStatus() {
       const appLabel =
         variables.appType === "claude"
           ? "Claude"
-          : variables.appType === "claude_desktop"
-            ? "Claude Desktop"
-            : variables.appType === "codex"
-              ? "Codex"
-              : variables.appType === "gemini"
-                ? "Gemini"
-                : "OpenCode";
+          : "Claude Desktop";
 
       toast.success(
         variables.enabled
@@ -188,8 +182,6 @@ export function useProxyStatus() {
     isTakeoverActive:
       takeoverStatus?.claude ||
       takeoverStatus?.claudeDesktop ||
-      takeoverStatus?.codex ||
-      takeoverStatus?.gemini ||
       false,
 
     // 启动/停止（总开关）

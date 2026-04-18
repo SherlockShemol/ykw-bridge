@@ -79,9 +79,12 @@ fn parse_provider_deeplink(
         .clone();
 
     // Validate app type
-    if app.as_str() != "claude" {
+    if !matches!(
+        app.as_str(),
+        "claude" | "claude_desktop" | "claudedesktop" | "claude-desktop"
+    ) {
         return Err(AppError::InvalidInput(format!(
-            "Invalid app type: only 'claude' is supported, got '{app}'"
+            "Invalid app type: only Claude apps are supported, got '{app}'"
         )));
     }
 
@@ -185,9 +188,12 @@ fn parse_prompt_deeplink(
         .clone();
 
     // Validate app type
-    if app.as_str() != "claude" {
+    if !matches!(
+        app.as_str(),
+        "claude" | "claude_desktop" | "claudedesktop" | "claude-desktop"
+    ) {
         return Err(AppError::InvalidInput(format!(
-            "Invalid app type: only 'claude' is supported, got '{app}'"
+            "Invalid app type: only Claude apps are supported, got '{app}'"
         )));
     }
 

@@ -106,12 +106,6 @@ pub fn import_mcp_from_deeplink(
             if target_apps.claude {
                 merged_apps.claude = true;
             }
-            if target_apps.codex {
-                merged_apps.codex = true;
-            }
-            if target_apps.gemini {
-                merged_apps.gemini = true;
-            }
 
             McpServer {
                 id: existing.id.clone(),
@@ -162,12 +156,7 @@ pub fn import_mcp_from_deeplink(
 
 /// Parse apps string into McpApps struct
 pub(crate) fn parse_mcp_apps(apps_str: &str) -> Result<McpApps, AppError> {
-    let mut apps = McpApps {
-        claude: false,
-        codex: false,
-        gemini: false,
-        opencode: false,
-    };
+    let mut apps = McpApps::default();
 
     for app in apps_str.split(',') {
         match app.trim() {

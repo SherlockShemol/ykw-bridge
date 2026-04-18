@@ -59,15 +59,13 @@ pub struct TrayAppSection {
 /// Auto 菜单项后缀
 pub const AUTO_SUFFIX: &str = "auto";
 
-pub const TRAY_SECTIONS: [TrayAppSection; 1] = [
-    TrayAppSection {
-        app_type: AppType::Claude,
-        prefix: "claude_",
-        empty_id: "claude_empty",
-        header_label: "Claude",
-        log_name: "Claude",
-    },
-];
+pub const TRAY_SECTIONS: [TrayAppSection; 1] = [TrayAppSection {
+    app_type: AppType::Claude,
+    prefix: "claude_",
+    empty_id: "claude_empty",
+    header_label: "Claude",
+    log_name: "Claude",
+}];
 
 /// 对供应商列表排序：sort_index → created_at → name
 fn sort_providers(

@@ -9,7 +9,7 @@
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 [![Downloads](https://img.shields.io/github/downloads/SherlockShemol/ykw-bridge/total)](https://github.com/SherlockShemol/ykw-bridge/releases/latest)
 
-[English](README.md) | [中文](README_ZH.md) | 日本語 | [Changelog](CHANGELOG.md)
+[English](README.md) | [中文](README_ZH.md) | 日本語 | [Releases](https://github.com/SherlockShemol/ykw-bridge/releases)
 
 </div>
 
@@ -50,7 +50,7 @@ Claude ワークフローでは、provider 設定、プロキシ、MCP、Prompts
 
 ## 特長
 
-[完全な更新履歴](CHANGELOG.md) | [リリースノート](docs/release-notes/v3.13.0-ja.md)
+[GitHub Releases](https://github.com/SherlockShemol/ykw-bridge/releases)
 
 ### プロバイダ管理
 
@@ -134,7 +134,7 @@ YKW Bridge は「最小限の介入」という設計原則に従っています
 - **データベース**: `~/.ykw-bridge/ykw-bridge.db`（SQLite -- プロバイダ、MCP、Prompts、Skills）
 - **ローカル設定**: `~/.ykw-bridge/settings.json`（デバイスレベルの UI 設定）
 - **バックアップ**: `~/.ykw-bridge/backups/`（自動ローテーション、最新 10 件を保持）
-- **Skills**: `~/.ykw-bridge/skills/`（デフォルトでシンボリックリンクにより対応アプリに接続）
+- **Skills**: `~/.ykw-bridge/skills/`（デフォルトで Claude ワークフローに同期）
 - **Skill バックアップ**: `~/.ykw-bridge/skill-backups/`（アンインストール前に自動作成、最新 20 件を保持）
 
 </details>
@@ -156,12 +156,12 @@ YKW Bridge は「最小限の介入」という設計原則に従っています
 
 ### MCP、Prompts、Skills & Sessions
 
-- **MCP**: 「MCP」ボタンをクリック → テンプレートまたはカスタム設定でサーバーを追加 → アプリごとの同期をトグルで切り替え
+- **MCP**: 「MCP」ボタンをクリック → テンプレートまたはカスタム設定でサーバーを追加 → Claude 側へ同期
 - **Prompts**: 「Prompts」をクリック → Markdown エディタでプリセットを作成 → 有効化してライブファイルに同期
-- **Skills**: 「Skills」をクリック → GitHub リポジトリを閲覧 → ワンクリックですべてのアプリにインストール
-- **Sessions**: 「Sessions」をクリック → すべてのアプリの会話履歴を閲覧・検索・復元
+- **Skills**: 「Skills」をクリック → GitHub リポジトリを閲覧 → Claude ワークフローへワンクリックインストール
+- **Sessions**: 「Sessions」をクリック → Claude の会話履歴を閲覧・検索・復元
 
-> **補足**: 初回起動時に、既存の CLI ツール設定を手動でインポートしてデフォルトプロバイダとして使用できます。
+> **補足**: 初回起動時に、既存の Claude 設定を手動でインポートしてデフォルトプロバイダとして使用できます。
 
 ## ダウンロード & インストール
 

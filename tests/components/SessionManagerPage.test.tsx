@@ -68,7 +68,7 @@ const renderPage = () => {
     client,
     ...render(
       <QueryClientProvider client={client}>
-        <SessionManagerPage appId="codex" />
+        <SessionManagerPage appId="claude" />
       </QueryClientProvider>,
     ),
   };
@@ -106,33 +106,33 @@ describe("SessionManagerPage", () => {
 
     const sessions: SessionMeta[] = [
       {
-        providerId: "codex",
-        sessionId: "codex-session-1",
+        providerId: "claude",
+        sessionId: "claude-session-1",
         title: "Alpha Session",
         summary: "Alpha summary",
-        projectDir: "/mock/codex",
+        projectDir: "/mock/claude",
         createdAt: 2,
         lastActiveAt: 20,
-        sourcePath: "/mock/codex/session-1.jsonl",
-        resumeCommand: "codex resume codex-session-1",
+        sourcePath: "/mock/claude/session-1.jsonl",
+        resumeCommand: "claude --resume claude-session-1",
       },
       {
-        providerId: "codex",
-        sessionId: "codex-session-2",
+        providerId: "claude",
+        sessionId: "claude-session-2",
         title: "Beta Session",
         summary: "Beta summary",
-        projectDir: "/mock/codex",
+        projectDir: "/mock/claude",
         createdAt: 1,
         lastActiveAt: 10,
-        sourcePath: "/mock/codex/session-2.jsonl",
-        resumeCommand: "codex resume codex-session-2",
+        sourcePath: "/mock/claude/session-2.jsonl",
+        resumeCommand: "claude --resume claude-session-2",
       },
     ];
     const messages: Record<string, SessionMessage[]> = {
-      "codex:/mock/codex/session-1.jsonl": [
+      "claude:/mock/claude/session-1.jsonl": [
         { role: "user", content: "alpha", ts: 20 },
       ],
-      "codex:/mock/codex/session-2.jsonl": [
+      "claude:/mock/claude/session-2.jsonl": [
         { role: "user", content: "beta", ts: 10 },
       ],
     };

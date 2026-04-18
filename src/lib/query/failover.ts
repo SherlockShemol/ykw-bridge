@@ -225,9 +225,7 @@ export function useSetAutoFailoverEnabled() {
       const appLabel =
         variables.appType === "claude"
           ? "Claude"
-          : variables.appType === "codex"
-            ? "Codex"
-            : "Gemini";
+          : "Claude Desktop";
 
       toast.success(
         variables.enabled

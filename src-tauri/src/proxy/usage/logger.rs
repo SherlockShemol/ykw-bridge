@@ -23,7 +23,7 @@ pub struct RequestLog {
     pub status_code: u16,
     pub error_message: Option<String>,
     pub session_id: Option<String>,
-    /// 供应商类型 (claude, claude_auth, codex, gemini, gemini_cli, openrouter)
+    /// 供应商类型（例如 claude_auth、openrouter、github_copilot、codex_oauth）
     pub provider_type: Option<String>,
     /// 是否为流式请求
     pub is_streaming: bool,

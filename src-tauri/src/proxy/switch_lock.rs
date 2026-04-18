@@ -9,7 +9,7 @@ use tokio::sync::{Mutex, OwnedMutexGuard, RwLock};
 
 /// 每个应用类型一把互斥锁，保证同一应用的切换操作串行执行。
 ///
-/// 不同应用之间（如 Claude 和 Codex）可以并行切换。
+/// 不同应用之间（如 Claude 和 Claude Desktop）可以并行切换。
 #[derive(Clone, Default)]
 pub struct SwitchLockManager {
     locks: Arc<RwLock<HashMap<String, Arc<Mutex<()>>>>>,

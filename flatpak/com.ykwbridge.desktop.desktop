@@ -1,9 +1,9 @@
 [Desktop Entry]
 Type=Application
-Name=CC Switch
-Comment=All-in-One Assistant for Claude Code, Codex & Gemini CLI
+Name=YKW Bridge
+Comment=All-in-One Assistant for Claude Workflows
 Exec=cc-switch
-Icon=com.ccswitch.desktop
+Icon=com.ykwbridge.desktop
 Terminal=false
 Categories=Utility;Development;
 StartupNotify=true

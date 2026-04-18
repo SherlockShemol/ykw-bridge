@@ -75,5 +75,5 @@ export function parseSmartMcpJson(jsonText: string): {
  * - 实现仅格式化缩进/空白的轻量级方案
  * - 使用 toml-eslint-parser + 自定义生成器
  *
- * 暂时建议：依赖现有的 TOML 语法校验（useCodexTomlValidation），不提供格式化功能。
+ * 暂时建议：依赖现有的 TOML 语法校验逻辑，不提供格式化功能。
  */

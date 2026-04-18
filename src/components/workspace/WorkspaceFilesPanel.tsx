@@ -89,7 +89,7 @@ const WorkspaceFilesPanel: React.FC = () => {
         onClick={() => workspaceApi.openDirectory("workspace")}
         title={t("workspace.openDirectory")}
       >
-        ~/.openclaw/workspace/
+        workspace/
         <FolderOpen className="w-3.5 h-3.5" />
       </p>
 

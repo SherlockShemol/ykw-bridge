@@ -9,7 +9,16 @@ use crate::prompt::Prompt;
 use crate::services::PromptService;
 use crate::store::AppState;
 use crate::AppType;
-use std::str::FromStr;
+
+fn parse_prompt_app(app: &str) -> Result<AppType, AppError> {
+    match app.trim().to_lowercase().as_str() {
+        "claude" => Ok(AppType::Claude),
+        "claude_desktop" | "claudedesktop" | "claude-desktop" => Ok(AppType::ClaudeDesktop),
+        other => Err(AppError::InvalidInput(format!(
+            "Deep link prompt import only supports Claude apps, got '{other}'"
+        ))),
+    }
+}
 
 /// Import a prompt from deep link request
 pub fn import_prompt_from_deeplink(
@@ -35,8 +44,7 @@ pub fn import_prompt_from_deeplink(
         .ok_or_else(|| AppError::InvalidInput("Missing 'name' field for prompt".to_string()))?;
 
     // Parse app type
-    let app_type = AppType::from_str(app_str)
-        .map_err(|_| AppError::InvalidInput(format!("Invalid app type: {app_str}")))?;
+    let app_type = parse_prompt_app(app_str)?;
 
     // Decode content
     let content_b64 = request

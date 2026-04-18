@@ -139,7 +139,7 @@ impl ProxyService {
             provider,
         )
         .map_err(|e| format!("构建 claude 有效配置失败: {e}"))?;
-        let (proxy_url, _) = self.build_proxy_urls().await?;
+        let proxy_url = self.build_proxy_url().await?;
 
         Self::apply_claude_takeover_fields(&mut effective_settings, &proxy_url);
         self.write_claude_live(&effective_settings)?;
@@ -311,29 +311,9 @@ impl ProxyService {
             .await
             .map(|c| c.enabled)
             .unwrap_or(false);
-        let codex_enabled = self
-            .db
-            .get_proxy_config_for_app("codex")
-            .await
-            .map(|c| c.enabled)
-            .unwrap_or(false);
-        let gemini_enabled = self
-            .db
-            .get_proxy_config_for_app("gemini")
-            .await
-            .map(|c| c.enabled)
-            .unwrap_or(false);
-        // OpenCode and OpenClaw don't support proxy features, always return false
-        let opencode_enabled = false;
-        let openclaw_enabled = false;
-
         Ok(ProxyTakeoverStatus {
             claude: claude_enabled,
             claude_desktop: claude_desktop_enabled,
-            codex: codex_enabled,
-            gemini: gemini_enabled,
-            opencode: opencode_enabled,
-            openclaw: openclaw_enabled,
         })
     }
 
@@ -343,6 +323,12 @@ impl ProxyService {
     /// - 关闭：仅恢复当前 app 的 Live 配置；若无其它接管，则自动停止代理服务
     pub async fn set_takeover_for_app(&self, app_type: &str, enabled: bool) -> Result<(), String> {
         let app = AppType::from_str(app_type).map_err(|e| format!("无效的应用类型: {e}"))?;
+        if !matches!(app, AppType::Claude | AppType::ClaudeDesktop) {
+            return Err(format!(
+                "代理接管仅支持 Claude / Claude Desktop，收到: {}",
+                app.as_str()
+            ));
+        }
         let app_type_str = app.as_str();
 
         if enabled {
@@ -506,16 +492,6 @@ impl ProxyService {
         let live_config = match app_type {
             AppType::Claude => self.read_claude_live()?,
             AppType::ClaudeDesktop => return Ok(()),
-            AppType::Codex => self.read_codex_live()?,
-            AppType::Gemini => self.read_gemini_live()?,
-            AppType::OpenCode => {
-                // OpenCode doesn't support proxy features
-                return Err("OpenCode 不支持代理功能".to_string());
-            }
-            AppType::OpenClaw => {
-                // OpenClaw doesn't support proxy features
-                return Err("OpenClaw 不支持代理功能".to_string());
-            }
         };
 
         self.sync_live_config_to_provider(app_type, &live_config)
@@ -624,118 +600,6 @@ impl ProxyService {
                 }
             }
             AppType::ClaudeDesktop => {}
-            AppType::Codex => {
-                let provider_id =
-                    crate::settings::get_effective_current_provider(&self.db, &AppType::Codex)
-                        .map_err(|e| format!("获取 Codex 当前供应商失败: {e}"))?;
-
-                if let Some(provider_id) = provider_id {
-                    if let Ok(Some(mut provider)) =
-                        self.db.get_provider_by_id(&provider_id, "codex")
-                    {
-                        if let Some(token) = live_config
-                            .get("auth")
-                            .and_then(|v| v.get("OPENAI_API_KEY"))
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.trim())
-                            .filter(|s| !s.is_empty() && *s != PROXY_TOKEN_PLACEHOLDER)
-                        {
-                            if let Some(auth_obj) = provider
-                                .settings_config
-                                .get_mut("auth")
-                                .and_then(|v| v.as_object_mut())
-                            {
-                                auth_obj.insert("OPENAI_API_KEY".to_string(), json!(token));
-                            } else {
-                                if provider.settings_config.is_null() {
-                                    provider.settings_config = json!({});
-                                }
-
-                                if let Some(root) = provider.settings_config.as_object_mut() {
-                                    root.insert(
-                                        "auth".to_string(),
-                                        json!({ "OPENAI_API_KEY": token }),
-                                    );
-                                } else {
-                                    log::warn!(
-                                        "Codex provider settings_config 格式异常（非对象），跳过写入 Token (provider: {provider_id})"
-                                    );
-                                }
-                            }
-
-                            if let Err(e) = self.db.update_provider_settings_config(
-                                "codex",
-                                &provider_id,
-                                &provider.settings_config,
-                            ) {
-                                log::warn!("同步 Codex Token 到数据库失败: {e}");
-                            } else {
-                                log::info!("已同步 Codex Token 到数据库 (provider: {provider_id})");
-                            }
-                        }
-                    }
-                }
-            }
-            AppType::Gemini => {
-                let provider_id =
-                    crate::settings::get_effective_current_provider(&self.db, &AppType::Gemini)
-                        .map_err(|e| format!("获取 Gemini 当前供应商失败: {e}"))?;
-
-                if let Some(provider_id) = provider_id {
-                    if let Ok(Some(mut provider)) =
-                        self.db.get_provider_by_id(&provider_id, "gemini")
-                    {
-                        if let Some(token) = live_config
-                            .get("env")
-                            .and_then(|v| v.get("GEMINI_API_KEY"))
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.trim())
-                            .filter(|s| !s.is_empty() && *s != PROXY_TOKEN_PLACEHOLDER)
-                        {
-                            if let Some(env_obj) = provider
-                                .settings_config
-                                .get_mut("env")
-                                .and_then(|v| v.as_object_mut())
-                            {
-                                env_obj.insert("GEMINI_API_KEY".to_string(), json!(token));
-                            } else {
-                                if provider.settings_config.is_null() {
-                                    provider.settings_config = json!({});
-                                }
-
-                                if let Some(root) = provider.settings_config.as_object_mut() {
-                                    root.insert(
-                                        "env".to_string(),
-                                        json!({ "GEMINI_API_KEY": token }),
-                                    );
-                                } else {
-                                    log::warn!(
-                                        "Gemini provider settings_config 格式异常（非对象），跳过写入 Token (provider: {provider_id})"
-                                    );
-                                }
-                            }
-
-                            if let Err(e) = self.db.update_provider_settings_config(
-                                "gemini",
-                                &provider_id,
-                                &provider.settings_config,
-                            ) {
-                                log::warn!("同步 Gemini Token 到数据库失败: {e}");
-                            } else {
-                                log::info!(
-                                    "已同步 Gemini Token 到数据库 (provider: {provider_id})"
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-            AppType::OpenCode => {
-                // OpenCode doesn't support proxy features, skip silently
-            }
-            AppType::OpenClaw => {
-                // OpenClaw doesn't support proxy features, skip silently
-            }
         }
 
         Ok(())
@@ -744,16 +608,6 @@ impl ProxyService {
     async fn sync_live_to_providers(&self) -> Result<(), String> {
         if let Ok(live_config) = self.read_claude_live() {
             self.sync_live_config_to_provider(&AppType::Claude, &live_config)
-                .await?;
-        }
-
-        if let Ok(live_config) = self.read_codex_live() {
-            self.sync_live_config_to_provider(&AppType::Codex, &live_config)
-                .await?;
-        }
-
-        if let Ok(live_config) = self.read_gemini_live() {
-            self.sync_live_config_to_provider(&AppType::Gemini, &live_config)
                 .await?;
         }
 
@@ -893,27 +747,7 @@ impl ProxyService {
                 .map_err(|e| format!("备份 Claude Desktop 配置失败: {e}"))?;
         }
 
-        // Codex
-        if let Ok(config) = self.read_codex_live() {
-            let json_str = serde_json::to_string(&config)
-                .map_err(|e| format!("序列化 Codex 配置失败: {e}"))?;
-            self.db
-                .save_live_backup("codex", &json_str)
-                .await
-                .map_err(|e| format!("备份 Codex 配置失败: {e}"))?;
-        }
-
-        // Gemini
-        if let Ok(config) = self.read_gemini_live() {
-            let json_str = serde_json::to_string(&config)
-                .map_err(|e| format!("序列化 Gemini 配置失败: {e}"))?;
-            self.db
-                .save_live_backup("gemini", &json_str)
-                .await
-                .map_err(|e| format!("备份 Gemini 配置失败: {e}"))?;
-        }
-
-        log::info!("已备份所有应用的 Live 配置");
+        log::info!("已备份 Claude 应用的 Live 配置");
         Ok(())
     }
 
@@ -926,16 +760,6 @@ impl ProxyService {
                 self.read_claude_desktop_live()
                     .unwrap_or_else(|_| json!({})),
             ),
-            AppType::Codex => ("codex", self.read_codex_live()?),
-            AppType::Gemini => ("gemini", self.read_gemini_live()?),
-            AppType::OpenCode => {
-                // OpenCode doesn't support proxy features
-                return Err("OpenCode 不支持代理功能".to_string());
-            }
-            AppType::OpenClaw => {
-                // OpenClaw doesn't support proxy features
-                return Err("OpenClaw 不支持代理功能".to_string());
-            }
         };
 
         let json_str = serde_json::to_string(&config)
@@ -949,7 +773,7 @@ impl ProxyService {
     }
 
     /// 构造写入 Live 的代理地址（处理 0.0.0.0 / IPv6 等特殊情况）
-    async fn build_proxy_urls(&self) -> Result<(String, String), String> {
+    async fn build_proxy_url(&self) -> Result<String, String> {
         let config = self
             .db
             .get_proxy_config()
@@ -969,11 +793,10 @@ impl ProxyService {
             connect_host
         };
 
-        let proxy_origin = format!("http://{}:{}", connect_host_for_url, config.listen_port);
-        let proxy_url = proxy_origin.clone();
-        let proxy_codex_base_url = format!("{}/v1", proxy_origin.trim_end_matches('/'));
-
-        Ok((proxy_url, proxy_codex_base_url))
+        Ok(format!(
+            "http://{}:{}",
+            connect_host_for_url, config.listen_port
+        ))
     }
 
     async fn build_claude_desktop_proxy_url(&self) -> Result<String, String> {
@@ -988,16 +811,9 @@ impl ProxyService {
         ))
     }
 
-    /// 接管各应用的 Live 配置（写入代理地址）
-    ///
-    /// 代理服务器的路由已经根据 API 端点自动区分应用类型：
-    /// - `/v1/messages` → Claude
-    /// - `/v1/chat/completions`, `/v1/responses` → Codex
-    /// - `/v1beta/*` → Gemini
-    ///
-    /// 因此不需要在 URL 中添加应用前缀。
+    /// 接管 Claude 应用的 Live 配置（写入代理地址）
     async fn takeover_live_configs(&self) -> Result<(), String> {
-        let (proxy_url, proxy_codex_base_url) = self.build_proxy_urls().await?;
+        let proxy_url = self.build_proxy_url().await?;
 
         // Claude: 修改 ANTHROPIC_BASE_URL，使用占位符替代真实 Token（代理会注入真实 Token）
         if let Ok(mut live_config) = self.read_claude_live() {
@@ -1023,47 +839,12 @@ impl ProxyService {
             }
         }
 
-        // Codex: 修改 config.toml 的 base_url，auth.json 的 OPENAI_API_KEY（代理会注入真实 Token）
-        if let Ok(mut live_config) = self.read_codex_live() {
-            // 1. 修改 auth.json 中的 OPENAI_API_KEY（使用占位符）
-            if let Some(auth) = live_config.get_mut("auth").and_then(|v| v.as_object_mut()) {
-                auth.insert("OPENAI_API_KEY".to_string(), json!(PROXY_TOKEN_PLACEHOLDER));
-            }
-
-            // 2. 修改 config.toml 中的 base_url
-            let config_str = live_config
-                .get("config")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let updated_config = Self::update_toml_base_url(config_str, &proxy_codex_base_url);
-            live_config["config"] = json!(updated_config);
-
-            self.write_codex_live(&live_config)?;
-            log::info!("Codex Live 配置已接管，代理地址: {proxy_codex_base_url}");
-        }
-
-        // Gemini: 修改 GOOGLE_GEMINI_BASE_URL，使用占位符替代真实 Token（代理会注入真实 Token）
-        if let Ok(mut live_config) = self.read_gemini_live() {
-            if let Some(env) = live_config.get_mut("env").and_then(|v| v.as_object_mut()) {
-                env.insert("GOOGLE_GEMINI_BASE_URL".to_string(), json!(&proxy_url));
-                // 使用占位符，避免显示缺少 key 的警告
-                env.insert("GEMINI_API_KEY".to_string(), json!(PROXY_TOKEN_PLACEHOLDER));
-            } else {
-                live_config["env"] = json!({
-                    "GOOGLE_GEMINI_BASE_URL": &proxy_url,
-                    "GEMINI_API_KEY": PROXY_TOKEN_PLACEHOLDER
-                });
-            }
-            self.write_gemini_live(&live_config)?;
-            log::info!("Gemini Live 配置已接管，代理地址: {proxy_url}");
-        }
-
         Ok(())
     }
 
     /// 接管指定应用的 Live 配置（严格模式：目标配置不存在则返回错误）
     async fn takeover_live_config_strict(&self, app_type: &AppType) -> Result<(), String> {
-        let (proxy_url, proxy_codex_base_url) = self.build_proxy_urls().await?;
+        let proxy_url = self.build_proxy_url().await?;
 
         match app_type {
             AppType::Claude => {
@@ -1095,47 +876,6 @@ impl ProxyService {
                 self.write_claude_desktop_live(&config)?;
                 log::info!("Claude Desktop Live 配置已接管，代理地址: {gateway_url}");
             }
-            AppType::Codex => {
-                let mut live_config = self.read_codex_live()?;
-
-                if let Some(auth) = live_config.get_mut("auth").and_then(|v| v.as_object_mut()) {
-                    auth.insert("OPENAI_API_KEY".to_string(), json!(PROXY_TOKEN_PLACEHOLDER));
-                }
-
-                let config_str = live_config
-                    .get("config")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let updated_config = Self::update_toml_base_url(config_str, &proxy_codex_base_url);
-                live_config["config"] = json!(updated_config);
-
-                self.write_codex_live(&live_config)?;
-                log::info!("Codex Live 配置已接管，代理地址: {proxy_codex_base_url}");
-            }
-            AppType::Gemini => {
-                let mut live_config = self.read_gemini_live()?;
-
-                if let Some(env) = live_config.get_mut("env").and_then(|v| v.as_object_mut()) {
-                    env.insert("GOOGLE_GEMINI_BASE_URL".to_string(), json!(&proxy_url));
-                    env.insert("GEMINI_API_KEY".to_string(), json!(PROXY_TOKEN_PLACEHOLDER));
-                } else {
-                    live_config["env"] = json!({
-                        "GOOGLE_GEMINI_BASE_URL": &proxy_url,
-                        "GEMINI_API_KEY": PROXY_TOKEN_PLACEHOLDER
-                    });
-                }
-
-                self.write_gemini_live(&live_config)?;
-                log::info!("Gemini Live 配置已接管，代理地址: {proxy_url}");
-            }
-            AppType::OpenCode => {
-                // OpenCode doesn't support proxy features
-                return Err("OpenCode 不支持代理功能".to_string());
-            }
-            AppType::OpenClaw => {
-                // OpenClaw doesn't support proxy features
-                return Err("OpenClaw 不支持代理功能".to_string());
-            }
         }
 
         Ok(())
@@ -1143,7 +883,7 @@ impl ProxyService {
 
     /// 接管指定应用的 Live 配置（尽力而为：配置不存在/读取失败则跳过）
     async fn takeover_live_config_best_effort(&self, app_type: &AppType) -> Result<(), String> {
-        let (proxy_url, proxy_codex_base_url) = self.build_proxy_urls().await?;
+        let proxy_url = self.build_proxy_url().await?;
 
         match app_type {
             AppType::Claude => {
@@ -1175,45 +915,6 @@ impl ProxyService {
                     }
                 }
             }
-            AppType::Codex => {
-                if let Ok(mut live_config) = self.read_codex_live() {
-                    if let Some(auth) = live_config.get_mut("auth").and_then(|v| v.as_object_mut())
-                    {
-                        auth.insert("OPENAI_API_KEY".to_string(), json!(PROXY_TOKEN_PLACEHOLDER));
-                    }
-
-                    let config_str = live_config
-                        .get("config")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
-                    let updated_config =
-                        Self::update_toml_base_url(config_str, &proxy_codex_base_url);
-                    live_config["config"] = json!(updated_config);
-
-                    let _ = self.write_codex_live(&live_config);
-                }
-            }
-            AppType::Gemini => {
-                if let Ok(mut live_config) = self.read_gemini_live() {
-                    if let Some(env) = live_config.get_mut("env").and_then(|v| v.as_object_mut()) {
-                        env.insert("GOOGLE_GEMINI_BASE_URL".to_string(), json!(&proxy_url));
-                        env.insert("GEMINI_API_KEY".to_string(), json!(PROXY_TOKEN_PLACEHOLDER));
-                    } else {
-                        live_config["env"] = json!({
-                            "GOOGLE_GEMINI_BASE_URL": &proxy_url,
-                            "GEMINI_API_KEY": PROXY_TOKEN_PLACEHOLDER
-                        });
-                    }
-
-                    let _ = self.write_gemini_live(&live_config);
-                }
-            }
-            AppType::OpenCode => {
-                // OpenCode doesn't support proxy features, skip silently
-            }
-            AppType::OpenClaw => {
-                // OpenClaw doesn't support proxy features, skip silently
-            }
         }
 
         Ok(())
@@ -1243,28 +944,6 @@ impl ProxyService {
                     log::info!("Claude Desktop Live 配置已恢复");
                 }
             }
-            AppType::Codex => {
-                if let Ok(Some(backup)) = self.db.get_live_backup("codex").await {
-                    let config: Value = serde_json::from_str(&backup.original_config)
-                        .map_err(|e| format!("解析 Codex 备份失败: {e}"))?;
-                    self.write_codex_live(&config)?;
-                    log::info!("Codex Live 配置已恢复");
-                }
-            }
-            AppType::Gemini => {
-                if let Ok(Some(backup)) = self.db.get_live_backup("gemini").await {
-                    let config: Value = serde_json::from_str(&backup.original_config)
-                        .map_err(|e| format!("解析 Gemini 备份失败: {e}"))?;
-                    self.write_gemini_live(&config)?;
-                    log::info!("Gemini Live 配置已恢复");
-                }
-            }
-            AppType::OpenCode => {
-                // OpenCode doesn't support proxy features, skip silently
-            }
-            AppType::OpenClaw => {
-                // OpenClaw doesn't support proxy features, skip silently
-            }
         }
 
         Ok(())
@@ -1274,12 +953,7 @@ impl ProxyService {
     async fn restore_live_configs(&self) -> Result<(), String> {
         let mut errors = Vec::new();
 
-        for app_type in [
-            AppType::Claude,
-            AppType::ClaudeDesktop,
-            AppType::Codex,
-            AppType::Gemini,
-        ] {
+        for app_type in [AppType::Claude, AppType::ClaudeDesktop] {
             if let Err(e) = self
                 .restore_live_config_for_app_with_fallback(&app_type)
                 .await
@@ -1357,16 +1031,6 @@ impl ProxyService {
         match app_type {
             AppType::Claude => self.write_claude_live(config),
             AppType::ClaudeDesktop => self.write_claude_desktop_live(config),
-            AppType::Codex => self.write_codex_live(config),
-            AppType::Gemini => self.write_gemini_live(config),
-            AppType::OpenCode => {
-                // OpenCode doesn't support proxy features
-                Err("OpenCode 不支持代理功能".to_string())
-            }
-            AppType::OpenClaw => {
-                // OpenClaw doesn't support proxy features
-                Err("OpenClaw 不支持代理功能".to_string())
-            }
         }
     }
 
@@ -1380,22 +1044,6 @@ impl ProxyService {
                 Ok(config) => Self::is_claude_desktop_live_taken_over(&config),
                 Err(_) => false,
             },
-            AppType::Codex => match self.read_codex_live() {
-                Ok(config) => Self::is_codex_live_taken_over(&config),
-                Err(_) => false,
-            },
-            AppType::Gemini => match self.read_gemini_live() {
-                Ok(config) => Self::is_gemini_live_taken_over(&config),
-                Err(_) => false,
-            },
-            AppType::OpenCode => {
-                // OpenCode doesn't support proxy takeover
-                false
-            }
-            AppType::OpenClaw => {
-                // OpenClaw doesn't support proxy takeover
-                false
-            }
         }
     }
 
@@ -1434,16 +1082,6 @@ impl ProxyService {
         match app_type {
             AppType::Claude => self.cleanup_claude_takeover_placeholders_in_live(),
             AppType::ClaudeDesktop => Ok(()),
-            AppType::Codex => self.cleanup_codex_takeover_placeholders_in_live(),
-            AppType::Gemini => self.cleanup_gemini_takeover_placeholders_in_live(),
-            AppType::OpenCode => {
-                // OpenCode doesn't support proxy features
-                Ok(())
-            }
-            AppType::OpenClaw => {
-                // OpenClaw doesn't support proxy features
-                Ok(())
-            }
         }
     }
 
@@ -1496,58 +1134,10 @@ impl ProxyService {
         Ok(())
     }
 
-    fn cleanup_codex_takeover_placeholders_in_live(&self) -> Result<(), String> {
-        let mut config = self.read_codex_live()?;
-
-        if let Some(auth) = config.get_mut("auth").and_then(|v| v.as_object_mut()) {
-            if auth.get("OPENAI_API_KEY").and_then(|v| v.as_str()) == Some(PROXY_TOKEN_PLACEHOLDER)
-            {
-                auth.remove("OPENAI_API_KEY");
-            }
-        }
-
-        if let Some(cfg_str) = config.get("config").and_then(|v| v.as_str()) {
-            let updated = Self::remove_local_toml_base_url(cfg_str);
-            config["config"] = json!(updated);
-        }
-
-        self.write_codex_live(&config)?;
-        Ok(())
-    }
-
-    /// Remove local proxy base_url from TOML（委托给 codex_config 共享实现）
-    fn remove_local_toml_base_url(toml_str: &str) -> String {
-        crate::codex_config::remove_codex_toml_base_url_if(toml_str, Self::is_local_proxy_url)
-    }
-
-    fn cleanup_gemini_takeover_placeholders_in_live(&self) -> Result<(), String> {
-        let mut config = self.read_gemini_live()?;
-
-        let Some(env) = config.get_mut("env").and_then(|v| v.as_object_mut()) else {
-            return Ok(());
-        };
-
-        if env.get("GEMINI_API_KEY").and_then(|v| v.as_str()) == Some(PROXY_TOKEN_PLACEHOLDER) {
-            env.remove("GEMINI_API_KEY");
-        }
-
-        if env
-            .get("GOOGLE_GEMINI_BASE_URL")
-            .and_then(|v| v.as_str())
-            .map(Self::is_local_proxy_url)
-            .unwrap_or(false)
-        {
-            env.remove("GOOGLE_GEMINI_BASE_URL");
-        }
-
-        self.write_gemini_live(&config)?;
-        Ok(())
-    }
-
     /// 检查是否处于 Live 接管模式
     pub async fn is_takeover_active(&self) -> Result<bool, String> {
         let status = self.get_takeover_status().await?;
-        Ok(status.claude || status.codex || status.gemini)
+        Ok(status.claude || status.claude_desktop)
     }
 
     /// 从异常退出中恢复（启动时调用）
@@ -1585,14 +1175,8 @@ impl ProxyService {
             }
         }
 
-        if let Ok(config) = self.read_codex_live() {
-            if Self::is_codex_live_taken_over(&config) {
-                return true;
-            }
-        }
-
-        if let Ok(config) = self.read_gemini_live() {
-            if Self::is_gemini_live_taken_over(&config) {
+        if let Ok(config) = self.read_claude_desktop_live() {
+            if Self::is_claude_desktop_live_taken_over(&config) {
                 return true;
             }
         }
@@ -1624,22 +1208,6 @@ impl ProxyService {
         crate::claude_desktop_config::is_managed_gateway_config(config)
     }
 
-    fn is_codex_live_taken_over(config: &Value) -> bool {
-        let auth = match config.get("auth").and_then(|v| v.as_object()) {
-            Some(auth) => auth,
-            None => return false,
-        };
-        auth.get("OPENAI_API_KEY").and_then(|v| v.as_str()) == Some(PROXY_TOKEN_PLACEHOLDER)
-    }
-
-    fn is_gemini_live_taken_over(config: &Value) -> bool {
-        let env = match config.get("env").and_then(|v| v.as_object()) {
-            Some(env) => env,
-            None => return false,
-        };
-        env.get("GEMINI_API_KEY").and_then(|v| v.as_str()) == Some(PROXY_TOKEN_PLACEHOLDER)
-    }
-
     /// 从供应商配置更新 Live 备份（用于代理模式下的热切换）
     ///
     /// 与 backup_live_configs() 不同，此方法从供应商的 settings_config 生成备份，
@@ -1662,47 +1230,20 @@ impl ProxyService {
     ) -> Result<(), String> {
         let app_type_enum =
             AppType::from_str(app_type).map_err(|_| format!("未知的应用类型: {app_type}"))?;
-        let mut effective_settings =
+        if !matches!(app_type_enum, AppType::Claude | AppType::ClaudeDesktop) {
+            return Err(format!(
+                "代理热切换备份仅支持 Claude / Claude Desktop，收到: {app_type}"
+            ));
+        }
+        let effective_settings =
             build_effective_settings_with_common_config(self.db.as_ref(), &app_type_enum, provider)
                 .map_err(|e| format!("构建 {app_type} 有效配置失败: {e}"))?;
-
-        if matches!(app_type_enum, AppType::Codex) {
-            let existing_backup = self
-                .db
-                .get_live_backup(app_type)
-                .await
-                .map_err(|e| format!("读取 {app_type} 现有备份失败: {e}"))?;
-
-            if let Some(existing_backup) = existing_backup {
-                let existing_value: Value = serde_json::from_str(&existing_backup.original_config)
-                    .map_err(|e| format!("解析 {app_type} 现有备份失败: {e}"))?;
-                Self::preserve_codex_mcp_servers_in_backup(
-                    &mut effective_settings,
-                    &existing_value,
-                )?;
-            }
-        }
 
         let backup_json = match app_type_enum {
             AppType::Claude => serde_json::to_string(&effective_settings)
                 .map_err(|e| format!("序列化 Claude 配置失败: {e}"))?,
             AppType::ClaudeDesktop => serde_json::to_string(&effective_settings)
                 .map_err(|e| format!("序列化 Claude Desktop 配置失败: {e}"))?,
-            AppType::Codex => serde_json::to_string(&effective_settings)
-                .map_err(|e| format!("序列化 Codex 配置失败: {e}"))?,
-            AppType::Gemini => {
-                // Gemini takeover 仅修改 .env；settings.json（含 mcpServers）保持原样。
-                let env_backup = if let Some(env) = effective_settings.get("env") {
-                    json!({ "env": env })
-                } else {
-                    json!({ "env": {} })
-                };
-                serde_json::to_string(&env_backup)
-                    .map_err(|e| format!("序列化 Gemini 配置失败: {e}"))?
-            }
-            AppType::OpenCode | AppType::OpenClaw => {
-                return Err(format!("未知的应用类型: {app_type}"));
-            }
         };
 
         self.db
@@ -1723,6 +1264,11 @@ impl ProxyService {
 
         let app_type_enum =
             AppType::from_str(app_type).map_err(|_| format!("无效的应用类型: {app_type}"))?;
+        if !matches!(app_type_enum, AppType::Claude | AppType::ClaudeDesktop) {
+            return Err(format!(
+                "代理热切换仅支持 Claude / Claude Desktop，收到: {app_type}"
+            ));
+        }
         let provider = self
             .db
             .get_provider_by_id(provider_id, app_type)
@@ -1790,67 +1336,6 @@ impl ProxyService {
         self.switch_locks.lock_for_app(app_type).await
     }
 
-    fn preserve_codex_mcp_servers_in_backup(
-        target_settings: &mut Value,
-        existing_backup: &Value,
-    ) -> Result<(), String> {
-        let target_obj = target_settings
-            .as_object_mut()
-            .ok_or_else(|| "Codex 备份必须是 JSON 对象".to_string())?;
-
-        let target_config = target_obj
-            .get("config")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let mut target_doc = if target_config.trim().is_empty() {
-            toml_edit::DocumentMut::new()
-        } else {
-            target_config
-                .parse::<toml_edit::DocumentMut>()
-                .map_err(|e| format!("解析新的 Codex config.toml 失败: {e}"))?
-        };
-
-        let existing_config = existing_backup
-            .get("config")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        if existing_config.trim().is_empty() {
-            target_obj.insert("config".to_string(), json!(target_doc.to_string()));
-            return Ok(());
-        }
-
-        let existing_doc = existing_config
-            .parse::<toml_edit::DocumentMut>()
-            .map_err(|e| format!("解析现有 Codex 备份失败: {e}"))?;
-
-        if let Some(existing_mcp_servers) = existing_doc.get("mcp_servers") {
-            match target_doc.get_mut("mcp_servers") {
-                Some(target_mcp_servers) => {
-                    if let (Some(target_table), Some(existing_table)) = (
-                        target_mcp_servers.as_table_like_mut(),
-                        existing_mcp_servers.as_table_like(),
-                    ) {
-                        for (server_id, server_item) in existing_table.iter() {
-                            if target_table.get(server_id).is_none() {
-                                target_table.insert(server_id, server_item.clone());
-                            }
-                        }
-                    } else {
-                        log::warn!(
-                            "Codex config contains a non-table mcp_servers section; skipping backup MCP merge"
-                        );
-                    }
-                }
-                None => {
-                    target_doc["mcp_servers"] = existing_mcp_servers.clone();
-                }
-            }
-        }
-
-        target_obj.insert("config".to_string(), json!(target_doc.to_string()));
-        Ok(())
-    }
-
     /// 代理模式下切换供应商（热切换，不写 Live）
     pub async fn switch_proxy_target(
         &self,
@@ -1868,12 +1353,6 @@ impl ProxyService {
     }
 
     // ==================== Live 配置读写辅助方法 ====================
-
-    /// 更新 TOML 字符串中的 base_url（委托给 codex_config 共享实现）
-    fn update_toml_base_url(toml_str: &str, new_url: &str) -> String {
-        crate::codex_config::update_codex_toml_field(toml_str, "base_url", new_url)
-            .unwrap_or_else(|_| toml_str.to_string())
-    }
 
     fn read_claude_live(&self) -> Result<Value, String> {
         let path = get_claude_settings_path();
@@ -1920,78 +1399,6 @@ impl ProxyService {
     fn write_claude_desktop_live(&self, config: &Value) -> Result<(), String> {
         crate::claude_desktop_config::write_live_config(config)
             .map_err(|e| format!("写入 Claude Desktop 配置失败: {e}"))
-    }
-
-    fn read_codex_live(&self) -> Result<Value, String> {
-        use crate::codex_config::{get_codex_auth_path, get_codex_config_path};
-
-        let auth_path = get_codex_auth_path();
-        if !auth_path.exists() {
-            return Err("Codex auth.json 不存在".to_string());
-        }
-
-        let auth: Value =
-            read_json_file(&auth_path).map_err(|e| format!("读取 Codex auth 失败: {e}"))?;
-
-        let config_path = get_codex_config_path();
-        let config_str = if config_path.exists() {
-            std::fs::read_to_string(&config_path)
-                .map_err(|e| format!("读取 Codex config 失败: {e}"))?
-        } else {
-            String::new()
-        };
-
-        Ok(json!({
-            "auth": auth,
-            "config": config_str
-        }))
-    }
-
-    fn write_codex_live(&self, config: &Value) -> Result<(), String> {
-        use crate::codex_config::{
-            get_codex_auth_path, get_codex_config_path, write_codex_live_atomic,
-        };
-
-        let auth = config.get("auth");
-        let config_str = config.get("config").and_then(|v| v.as_str());
-
-        match (auth, config_str) {
-            (Some(auth), Some(cfg)) => write_codex_live_atomic(auth, Some(cfg))
-                .map_err(|e| format!("写入 Codex 配置失败: {e}"))?,
-            (Some(auth), None) => {
-                let auth_path = get_codex_auth_path();
-                write_json_file(&auth_path, auth)
-                    .map_err(|e| format!("写入 Codex auth 失败: {e}"))?;
-            }
-            (None, Some(cfg)) => {
-                let config_path = get_codex_config_path();
-                crate::config::write_text_file(&config_path, cfg)
-                    .map_err(|e| format!("写入 Codex config 失败: {e}"))?;
-            }
-            (None, None) => {}
-        }
-
-        Ok(())
-    }
-
-    fn read_gemini_live(&self) -> Result<Value, String> {
-        use crate::gemini_config::{env_to_json, get_gemini_env_path, read_gemini_env};
-
-        let env_path = get_gemini_env_path();
-        if !env_path.exists() {
-            return Err("Gemini .env 文件不存在".to_string());
-        }
-
-        let env_map = read_gemini_env().map_err(|e| format!("读取 Gemini env 失败: {e}"))?;
-        Ok(env_to_json(&env_map))
-    }
-
-    fn write_gemini_live(&self, config: &Value) -> Result<(), String> {
-        use crate::gemini_config::{json_to_env, write_gemini_env_atomic};
-
-        let env_map = json_to_env(config).map_err(|e| format!("转换 Gemini 配置失败: {e}"))?;
-        write_gemini_env_atomic(&env_map).map_err(|e| format!("写入 Gemini env 失败: {e}"))?;
-        Ok(())
     }
 
     // ==================== 原有方法 ====================
@@ -2073,13 +1480,8 @@ impl ProxyService {
                         .await?;
                     updated_any = true;
                 }
-                if takeover.codex {
-                    self.takeover_live_config_best_effort(&AppType::Codex)
-                        .await?;
-                    updated_any = true;
-                }
-                if takeover.gemini {
-                    self.takeover_live_config_best_effort(&AppType::Gemini)
+                if takeover.claude_desktop {
+                    self.takeover_live_config_best_effort(&AppType::ClaudeDesktop)
                         .await?;
                     updated_any = true;
                 }
@@ -2190,68 +1592,6 @@ mod tests {
                 None => env::remove_var("CC_SWITCH_TEST_HOME"),
             }
         }
-    }
-
-    #[test]
-    fn update_toml_base_url_updates_active_model_provider_base_url() {
-        let input = r#"
-model_provider = "any"
-model = "gpt-5.1-codex"
-disable_response_storage = true
-
-[model_providers.any]
-name = "any"
-base_url = "https://anyrouter.top/v1"
-wire_api = "responses"
-requires_openai_auth = true
-"#;
-
-        let new_url = "http://127.0.0.1:5000/v1";
-        let output = ProxyService::update_toml_base_url(input, new_url);
-
-        let parsed: toml::Value =
-            toml::from_str(&output).expect("updated config should be valid TOML");
-
-        let base_url = parsed
-            .get("model_providers")
-            .and_then(|v| v.get("any"))
-            .and_then(|v| v.get("base_url"))
-            .and_then(|v| v.as_str())
-            .expect("model_providers.any.base_url should exist");
-
-        assert_eq!(base_url, new_url);
-        assert!(
-            parsed.get("base_url").is_none(),
-            "should not write top-level base_url"
-        );
-
-        let wire_api = parsed
-            .get("model_providers")
-            .and_then(|v| v.get("any"))
-            .and_then(|v| v.get("wire_api"))
-            .and_then(|v| v.as_str())
-            .expect("model_providers.any.wire_api should exist");
-        assert_eq!(wire_api, "responses");
-    }
-
-    #[test]
-    fn update_toml_base_url_falls_back_to_top_level_base_url() {
-        let input = r#"
-model = "gpt-5.1-codex"
-"#;
-
-        let new_url = "http://127.0.0.1:5000/v1";
-        let output = ProxyService::update_toml_base_url(input, new_url);
-
-        let parsed: toml::Value =
-            toml::from_str(&output).expect("updated config should be valid TOML");
-
-        let base_url = parsed
-            .get("base_url")
-            .and_then(|v| v.as_str())
-            .expect("base_url should exist");
-
-        assert_eq!(base_url, new_url);
     }
 
     #[tokio::test]
@@ -2762,231 +2102,6 @@ model = "gpt-5.1-codex"
             stored.get("includeCoAuthoredBy").and_then(|v| v.as_bool()),
             Some(false),
             "common config should be applied into Claude restore backup"
-        );
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn update_live_backup_from_provider_applies_codex_common_config() {
-        let _home = TempHome::new();
-        crate::settings::reload_settings().expect("reload settings");
-
-        let db = Arc::new(Database::memory().expect("init db"));
-        db.set_config_snippet(
-            "codex",
-            Some("disable_response_storage = true\n".to_string()),
-        )
-        .expect("set common config snippet");
-
-        let service = ProxyService::new(db.clone());
-
-        let mut provider = Provider::with_id(
-            "p1".to_string(),
-            "P1".to_string(),
-            json!({
-                "auth": {
-                    "OPENAI_API_KEY": "token"
-                },
-                "config": r#"model_provider = "any"
-model = "gpt-5"
-
-[model_providers.any]
-base_url = "https://codex.example/v1"
-"#
-            }),
-            None,
-        );
-        provider.meta = Some(ProviderMeta {
-            common_config_enabled: Some(true),
-            ..Default::default()
-        });
-
-        service
-            .update_live_backup_from_provider("codex", &provider)
-            .await
-            .expect("update live backup");
-
-        let backup = db
-            .get_live_backup("codex")
-            .await
-            .expect("get live backup")
-            .expect("backup exists");
-        let stored: Value =
-            serde_json::from_str(&backup.original_config).expect("parse backup json");
-        let config = stored
-            .get("config")
-            .and_then(|v| v.as_str())
-            .expect("config string");
-
-        assert!(
-            config.contains("disable_response_storage = true"),
-            "common config should be applied into Codex restore backup"
-        );
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn update_live_backup_from_provider_preserves_codex_mcp_servers() {
-        let _home = TempHome::new();
-        crate::settings::reload_settings().expect("reload settings");
-
-        let db = Arc::new(Database::memory().expect("init db"));
-        let service = ProxyService::new(db.clone());
-
-        db.save_live_backup(
-            "codex",
-            &serde_json::to_string(&json!({
-                "auth": {
-                    "OPENAI_API_KEY": "old-token"
-                },
-                "config": r#"model_provider = "any"
-model = "gpt-4"
-
-[model_providers.any]
-base_url = "https://old.example/v1"
-
-[mcp_servers.echo]
-command = "npx"
-args = ["echo-server"]
-"#
-            }))
-            .expect("serialize seed backup"),
-        )
-        .await
-        .expect("seed live backup");
-
-        let provider = Provider::with_id(
-            "p2".to_string(),
-            "P2".to_string(),
-            json!({
-                "auth": {
-                    "OPENAI_API_KEY": "new-token"
-                },
-                "config": r#"model_provider = "any"
-model = "gpt-5"
-
-[model_providers.any]
-base_url = "https://new.example/v1"
-"#
-            }),
-            None,
-        );
-
-        service
-            .update_live_backup_from_provider("codex", &provider)
-            .await
-            .expect("update live backup");
-
-        let backup = db
-            .get_live_backup("codex")
-            .await
-            .expect("get live backup")
-            .expect("backup exists");
-        let stored: Value =
-            serde_json::from_str(&backup.original_config).expect("parse backup json");
-        let config = stored
-            .get("config")
-            .and_then(|v| v.as_str())
-            .expect("config string");
-
-        assert!(
-            config.contains("[mcp_servers.echo]"),
-            "existing Codex MCP section should survive proxy hot-switch backup update"
-        );
-        assert!(
-            config.contains("https://new.example/v1"),
-            "provider-specific base_url should still update to the new provider"
-        );
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn update_live_backup_from_provider_keeps_new_codex_mcp_entries_on_conflict() {
-        let _home = TempHome::new();
-        crate::settings::reload_settings().expect("reload settings");
-
-        let db = Arc::new(Database::memory().expect("init db"));
-        let service = ProxyService::new(db.clone());
-
-        db.save_live_backup(
-            "codex",
-            &serde_json::to_string(&json!({
-                "auth": {
-                    "OPENAI_API_KEY": "old-token"
-                },
-                "config": r#"[mcp_servers.shared]
-command = "old-command"
-
-[mcp_servers.legacy]
-command = "legacy-command"
-"#
-            }))
-            .expect("serialize seed backup"),
-        )
-        .await
-        .expect("seed live backup");
-
-        let provider = Provider::with_id(
-            "p2".to_string(),
-            "P2".to_string(),
-            json!({
-                "auth": {
-                    "OPENAI_API_KEY": "new-token"
-                },
-                "config": r#"[mcp_servers.shared]
-command = "new-command"
-
-[mcp_servers.latest]
-command = "latest-command"
-"#
-            }),
-            None,
-        );
-
-        service
-            .update_live_backup_from_provider("codex", &provider)
-            .await
-            .expect("update live backup");
-
-        let backup = db
-            .get_live_backup("codex")
-            .await
-            .expect("get live backup")
-            .expect("backup exists");
-        let stored: Value =
-            serde_json::from_str(&backup.original_config).expect("parse backup json");
-        let config = stored
-            .get("config")
-            .and_then(|v| v.as_str())
-            .expect("config string");
-        let parsed: toml::Value = toml::from_str(config).expect("parse merged codex config");
-
-        let mcp_servers = parsed
-            .get("mcp_servers")
-            .expect("mcp_servers should be present");
-        assert_eq!(
-            mcp_servers
-                .get("shared")
-                .and_then(|v| v.get("command"))
-                .and_then(|v| v.as_str()),
-            Some("new-command"),
-            "new provider/common-config MCP definition should win on conflict"
-        );
-        assert_eq!(
-            mcp_servers
-                .get("legacy")
-                .and_then(|v| v.get("command"))
-                .and_then(|v| v.as_str()),
-            Some("legacy-command"),
-            "backup-only MCP entries should still be preserved"
-        );
-        assert_eq!(
-            mcp_servers
-                .get("latest")
-                .and_then(|v| v.get("command"))
-                .and_then(|v| v.as_str()),
-            Some("latest-command"),
-            "new MCP entries should remain in the restore backup"
         );
     }
 }

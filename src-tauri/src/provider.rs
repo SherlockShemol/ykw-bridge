@@ -261,10 +261,6 @@ pub struct ProviderMeta {
     /// If not set, provider ID is used automatically during Claude -> Responses conversion.
     #[serde(rename = "promptCacheKey", skip_serializing_if = "Option::is_none")]
     pub prompt_cache_key: Option<String>,
-    /// 累加模式应用中，该 provider 是否已写入 live config。
-    /// `None` 表示旧数据/未知状态，`Some(false)` 表示明确仅存在于数据库中。
-    #[serde(rename = "liveConfigManaged", skip_serializing_if = "Option::is_none")]
-    pub live_config_managed: Option<bool>,
     /// 供应商类型标识（用于特殊供应商检测）
     /// - "github_copilot": GitHub Copilot 供应商
     #[serde(rename = "providerType", skip_serializing_if = "Option::is_none")]
@@ -314,10 +310,6 @@ pub struct UniversalProviderApps {
     pub claude: bool,
     #[serde(default, rename = "claudeDesktop", alias = "claude_desktop")]
     pub claude_desktop: bool,
-    #[serde(default)]
-    pub codex: bool,
-    #[serde(default)]
-    pub gemini: bool,
 }
 
 /// Claude 模型配置
@@ -340,26 +332,6 @@ pub struct ClaudeModelConfig {
     pub opus_model: Option<String>,
 }
 
-/// Codex 模型配置
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct CodexModelConfig {
-    /// 模型名称
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-    /// 推理强度
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "reasoningEffort")]
-    pub reasoning_effort: Option<String>,
-}
-
-/// Gemini 模型配置
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct GeminiModelConfig {
-    /// 模型名称
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-}
-
 /// 各应用的模型配置
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UniversalProviderModels {
@@ -371,10 +343,6 @@ pub struct UniversalProviderModels {
         alias = "claude_desktop"
     )]
     pub claude_desktop: Option<ClaudeModelConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub codex: Option<CodexModelConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub gemini: Option<GeminiModelConfig>,
 }
 
 /// 统一供应商（跨应用共享配置）
@@ -549,211 +517,11 @@ impl UniversalProvider {
             in_failover_queue: false,
         })
     }
-
-    /// 生成 Codex 供应商配置
-    pub fn to_codex_provider(&self) -> Option<Provider> {
-        if !self.apps.codex {
-            return None;
-        }
-
-        let models = self.models.codex.as_ref();
-        let model = models
-            .and_then(|m| m.model.clone())
-            .unwrap_or_else(|| "gpt-4o".to_string());
-        let reasoning_effort = models
-            .and_then(|m| m.reasoning_effort.clone())
-            .unwrap_or_else(|| "high".to_string());
-
-        // Codex/OpenAI 的 base_url 既可能是纯 origin（需要补 /v1），也可能包含自定义前缀（不应强行补版本）
-        let base_trimmed = self.base_url.trim_end_matches('/');
-        let origin_only = match base_trimmed.split_once("://") {
-            Some((_scheme, rest)) => !rest.contains('/'),
-            None => !base_trimmed.contains('/'),
-        };
-        let codex_base_url = if base_trimmed.ends_with("/v1") {
-            base_trimmed.to_string()
-        } else if origin_only {
-            format!("{base_trimmed}/v1")
-        } else {
-            base_trimmed.to_string()
-        };
-
-        // 生成 Codex 的 config.toml 内容
-        let config_toml = format!(
-            r#"model_provider = "newapi"
-model = "{model}"
-model_reasoning_effort = "{reasoning_effort}"
-disable_response_storage = true
-
-[model_providers.newapi]
-name = "NewAPI"
-base_url = "{codex_base_url}"
-wire_api = "responses"
-requires_openai_auth = true"#
-        );
-
-        let settings_config = serde_json::json!({
-            "auth": {
-                "OPENAI_API_KEY": self.api_key
-            },
-            "config": config_toml
-        });
-
-        Some(Provider {
-            id: format!("universal-codex-{}", self.id),
-            name: self.name.clone(),
-            settings_config,
-            website_url: self.website_url.clone(),
-            category: Some("aggregator".to_string()),
-            created_at: self.created_at,
-            sort_index: self.sort_index,
-            notes: self.notes.clone(),
-            meta: self.meta.clone(),
-            icon: self.icon.clone(),
-            icon_color: self.icon_color.clone(),
-            in_failover_queue: false,
-        })
-    }
-
-    /// 生成 Gemini 供应商配置
-    pub fn to_gemini_provider(&self) -> Option<Provider> {
-        if !self.apps.gemini {
-            return None;
-        }
-
-        let models = self.models.gemini.as_ref();
-        let model = models
-            .and_then(|m| m.model.clone())
-            .unwrap_or_else(|| "gemini-2.5-pro".to_string());
-
-        let settings_config = serde_json::json!({
-            "env": {
-                "GOOGLE_GEMINI_BASE_URL": self.base_url,
-                "GEMINI_API_KEY": self.api_key,
-                "GEMINI_MODEL": model,
-            }
-        });
-
-        Some(Provider {
-            id: format!("universal-gemini-{}", self.id),
-            name: self.name.clone(),
-            settings_config,
-            website_url: self.website_url.clone(),
-            category: Some("aggregator".to_string()),
-            created_at: self.created_at,
-            sort_index: self.sort_index,
-            notes: self.notes.clone(),
-            meta: self.meta.clone(),
-            icon: self.icon.clone(),
-            icon_color: self.icon_color.clone(),
-            in_failover_queue: false,
-        })
-    }
-}
-
-// ============================================================================
-// OpenCode 供应商配置结构
-// ============================================================================
-
-/// OpenCode 供应商的 settings_config 结构
-///
-/// OpenCode 使用 AI SDK 包名来指定供应商类型，与其他应用的配置格式不同。
-/// 配置示例：
-/// ```json
-/// {
-///   "npm": "@ai-sdk/openai-compatible",
-///   "options": { "baseURL": "https://api.example.com/v1", "apiKey": "sk-xxx" },
-///   "models": { "gpt-4o": { "name": "GPT-4o" } }
-/// }
-/// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OpenCodeProviderConfig {
-    /// AI SDK 包名，如 "@ai-sdk/openai-compatible", "@ai-sdk/anthropic"
-    pub npm: String,
-
-    /// 供应商名称（可选，用于显示）
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-
-    /// 供应商选项（API 密钥、基础 URL 等）
-    #[serde(default)]
-    pub options: OpenCodeProviderOptions,
-
-    /// 模型定义映射
-    #[serde(default)]
-    pub models: HashMap<String, OpenCodeModel>,
-}
-
-impl Default for OpenCodeProviderConfig {
-    fn default() -> Self {
-        Self {
-            npm: "@ai-sdk/openai-compatible".to_string(),
-            name: None,
-            options: OpenCodeProviderOptions::default(),
-            models: HashMap::new(),
-        }
-    }
-}
-
-/// OpenCode 供应商选项
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct OpenCodeProviderOptions {
-    /// API 基础 URL
-    #[serde(rename = "baseURL", skip_serializing_if = "Option::is_none")]
-    pub base_url: Option<String>,
-
-    /// API 密钥（支持环境变量引用，如 "{env:API_KEY}"）
-    #[serde(rename = "apiKey", skip_serializing_if = "Option::is_none")]
-    pub api_key: Option<String>,
-
-    /// 自定义请求头
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub headers: Option<HashMap<String, String>>,
-
-    /// 额外选项（timeout, setCacheKey 等）
-    /// 使用 flatten 捕获所有未明确定义的字段
-    #[serde(flatten, default, skip_serializing_if = "HashMap::is_empty")]
-    pub extra: HashMap<String, Value>,
-}
-
-/// OpenCode 模型定义
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OpenCodeModel {
-    /// 模型显示名称
-    pub name: String,
-
-    /// 模型限制（上下文和输出 token 数）
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub limit: Option<OpenCodeModelLimit>,
-
-    /// 模型额外选项（provider 路由等）
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub options: Option<HashMap<String, Value>>,
-
-    /// 额外字段（cost、modalities、thinking、variants 等）
-    /// 使用 flatten 捕获所有未明确定义的字段
-    #[serde(flatten, default, skip_serializing_if = "HashMap::is_empty")]
-    pub extra: HashMap<String, Value>,
-}
-
-/// OpenCode 模型限制
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct OpenCodeModelLimit {
-    /// 上下文 token 限制
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub context: Option<u64>,
-
-    /// 输出 token 限制
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub output: Option<u64>,
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        ClaudeModelConfig, CodexModelConfig, GeminiModelConfig, OpenCodeProviderConfig, Provider,
-        ProviderManager, ProviderMeta, UniversalProvider,
-    };
+    use super::{ClaudeModelConfig, Provider, ProviderManager, ProviderMeta, UniversalProvider};
     use serde_json::json;
 
     #[test]
@@ -884,173 +652,5 @@ mod tests {
         );
 
         assert!(universal.to_claude_provider().is_none());
-    }
-
-    #[test]
-    fn universal_provider_to_codex_provider_appends_v1() {
-        let mut universal = UniversalProvider::new(
-            "u1".to_string(),
-            "Universal".to_string(),
-            "newapi".to_string(),
-            "https://api.example.com".to_string(),
-            "api-key".to_string(),
-        );
-        universal.apps.codex = true;
-        universal.models.codex = Some(CodexModelConfig {
-            model: Some("gpt-4o-mini".to_string()),
-            reasoning_effort: Some("low".to_string()),
-        });
-
-        let provider = universal.to_codex_provider().expect("codex provider");
-        let config = provider
-            .settings_config
-            .get("config")
-            .and_then(|item| item.as_str())
-            .expect("config toml");
-
-        assert!(config.contains("base_url = \"https://api.example.com/v1\""));
-        assert_eq!(
-            provider
-                .settings_config
-                .pointer("/auth/OPENAI_API_KEY")
-                .and_then(|item| item.as_str()),
-            Some("api-key")
-        );
-    }
-
-    #[test]
-    fn universal_provider_to_codex_provider_keeps_v1_suffix() {
-        let mut universal = UniversalProvider::new(
-            "u1".to_string(),
-            "Universal".to_string(),
-            "newapi".to_string(),
-            "https://api.example.com/v1".to_string(),
-            "api-key".to_string(),
-        );
-        universal.apps.codex = true;
-
-        let provider = universal.to_codex_provider().expect("codex provider");
-        let config = provider
-            .settings_config
-            .get("config")
-            .and_then(|item| item.as_str())
-            .expect("config toml");
-
-        assert!(config.contains("base_url = \"https://api.example.com/v1\""));
-    }
-
-    #[test]
-    fn universal_provider_to_codex_provider_disabled_returns_none() {
-        let universal = UniversalProvider::new(
-            "u1".to_string(),
-            "Universal".to_string(),
-            "newapi".to_string(),
-            "https://api.example.com".to_string(),
-            "api-key".to_string(),
-        );
-
-        assert!(universal.to_codex_provider().is_none());
-    }
-
-    #[test]
-    fn universal_provider_to_gemini_provider_defaults_model() {
-        let mut universal = UniversalProvider::new(
-            "u1".to_string(),
-            "Universal".to_string(),
-            "newapi".to_string(),
-            "https://api.example.com".to_string(),
-            "api-key".to_string(),
-        );
-        universal.apps.gemini = true;
-
-        let provider = universal.to_gemini_provider().expect("gemini provider");
-
-        assert_eq!(
-            provider
-                .settings_config
-                .pointer("/env/GEMINI_MODEL")
-                .and_then(|item| item.as_str()),
-            Some("gemini-2.5-pro")
-        );
-    }
-
-    #[test]
-    fn universal_provider_to_gemini_provider_uses_model() {
-        let mut universal = UniversalProvider::new(
-            "u1".to_string(),
-            "Universal".to_string(),
-            "newapi".to_string(),
-            "https://api.example.com".to_string(),
-            "api-key".to_string(),
-        );
-        universal.apps.gemini = true;
-        universal.models.gemini = Some(GeminiModelConfig {
-            model: Some("gemini-custom".to_string()),
-        });
-
-        let provider = universal.to_gemini_provider().expect("gemini provider");
-
-        assert_eq!(
-            provider
-                .settings_config
-                .pointer("/env/GEMINI_MODEL")
-                .and_then(|item| item.as_str()),
-            Some("gemini-custom")
-        );
-    }
-
-    #[test]
-    fn opencode_provider_config_defaults() {
-        let config = OpenCodeProviderConfig::default();
-        assert_eq!(config.npm, "@ai-sdk/openai-compatible");
-        assert!(config.name.is_none());
-        assert!(config.models.is_empty());
-        assert!(config.options.base_url.is_none());
-        assert!(config.options.api_key.is_none());
-        assert!(config.options.headers.is_none());
-        assert!(config.options.extra.is_empty());
-    }
-
-    #[test]
-    fn universal_codex_provider_origin_base_url_adds_v1() {
-        let mut p = UniversalProvider::new(
-            "id".to_string(),
-            "Test".to_string(),
-            "custom".to_string(),
-            "https://api.openai.com".to_string(),
-            "sk-test".to_string(),
-        );
-        p.apps.codex = true;
-
-        let provider = p.to_codex_provider().expect("should build codex provider");
-        let toml = provider
-            .settings_config
-            .get("config")
-            .and_then(|v| v.as_str())
-            .expect("config should be a toml string");
-
-        assert!(toml.contains("base_url = \"https://api.openai.com/v1\""));
-    }
-
-    #[test]
-    fn universal_codex_provider_custom_prefix_does_not_force_v1() {
-        let mut p = UniversalProvider::new(
-            "id".to_string(),
-            "Test".to_string(),
-            "custom".to_string(),
-            "https://example.com/openai".to_string(),
-            "sk-test".to_string(),
-        );
-        p.apps.codex = true;
-
-        let provider = p.to_codex_provider().expect("should build codex provider");
-        let toml = provider
-            .settings_config
-            .get("config")
-            .and_then(|v| v.as_str())
-            .expect("config should be a toml string");
-
-        assert!(toml.contains("base_url = \"https://example.com/openai\""));
-        assert!(!toml.contains("https://example.com/openai/v1"));
     }
 }

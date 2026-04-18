@@ -116,7 +116,10 @@ function App() {
     if (app === "claude_desktop") {
       return takeoverStatus.claudeDesktop;
     }
-    return takeoverStatus[app as keyof ProxyTakeoverStatus] ?? false;
+    if (app === "claude") {
+      return takeoverStatus.claude;
+    }
+    return false;
   };
 
   const [currentView, setCurrentView] = useState<View>(getInitialView);
@@ -515,7 +518,6 @@ function App() {
 
     const duplicatedProvider: Omit<Provider, "id" | "createdAt"> & {
       providerKey?: string;
-      addToLive?: boolean;
     } = {
       name: `${provider.name} copy`,
       settingsConfig: JSON.parse(JSON.stringify(provider.settingsConfig)), // 深拷贝
@@ -534,7 +536,6 @@ function App() {
       provider.id,
       existingKeys,
     );
-    duplicatedProvider.addToLive = false;
 
     if (provider.sortIndex !== undefined) {
       const updates = Object.values(providers)

@@ -44,10 +44,6 @@ export interface ProxyServerInfo {
 export interface ProxyTakeoverStatus {
   claude: boolean;
   claudeDesktop: boolean;
-  codex: boolean;
-  gemini: boolean;
-  opencode: boolean;
-  openclaw: boolean;
 }
 
 export interface ProviderHealth {

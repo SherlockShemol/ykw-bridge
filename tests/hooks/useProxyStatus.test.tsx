@@ -79,10 +79,7 @@ describe("useProxyStatus", () => {
       if (command === "get_proxy_takeover_status") {
         return Promise.resolve({
           claude: false,
-          codex: false,
-          gemini: false,
-          opencode: false,
-          openclaw: false,
+          claudeDesktop: false,
         });
       }
 

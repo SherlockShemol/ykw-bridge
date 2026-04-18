@@ -27,7 +27,7 @@ use tokio::sync::{Mutex, RwLock};
 
 use super::copilot_auth::{GitHubAccount, GitHubDeviceCodeResponse};
 
-/// OpenAI OAuth 客户端 ID（OpenCode 使用，与官方 Codex CLI 相同）
+/// OpenAI OAuth 客户端 ID（当前设备流使用的固定常量）
 const CODEX_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 
 /// Device Code 启动 URL

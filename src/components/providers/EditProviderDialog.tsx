@@ -8,7 +8,7 @@ import {
   ProviderForm,
   type ProviderFormValues,
 } from "@/components/providers/forms/ProviderForm";
-import { openclawApi, providersApi, vscodeApi, type AppId } from "@/lib/api";
+import { providersApi, vscodeApi, type AppId } from "@/lib/api";
 
 interface EditProviderDialogProps {
   open: boolean;
@@ -31,6 +31,7 @@ export function EditProviderDialog({
   isProxyTakeover = false,
 }: EditProviderDialogProps) {
   const { t } = useTranslation();
+  const isClaudeLikeApp = appId === "claude" || appId === "claude_desktop";
   const [isFormSubmitting, setIsFormSubmitting] = useState(false);
 
   // 默认使用传入的 provider.settingsConfig，若当前编辑对象是"当前生效供应商"，则尝试读取实时配置替换初始值
@@ -67,35 +68,14 @@ export function EditProviderDialog({
       }
 
       // Some apps use a derived/managed live config instead of storing the provider SSOT directly:
-      // - OpenCode live is the full opencode.json rather than a single provider fragment
       // - Claude Desktop live is the generated managed gateway config (enterpriseConfig),
       //   not the provider's original env-based settings
-      // In both cases, reading live here would cause the generated/runtime shape to overwrite
+      // Reading live here would cause the generated/runtime shape to overwrite
       // the provider source config on save.
-      if (appId === "opencode" || appId === "claude_desktop") {
+      if (appId === "claude_desktop") {
         if (!cancelled) {
           setLiveSettings(null);
           setHasLoadedLive(true);
-        }
-        return;
-      }
-
-      if (appId === "openclaw") {
-        try {
-          const live = await openclawApi.getLiveProvider(provider.id);
-          if (!cancelled && live && typeof live === "object") {
-            setLiveSettings(live);
-          } else if (!cancelled) {
-            setLiveSettings(null);
-          }
-        } catch {
-          if (!cancelled) {
-            setLiveSettings(null);
-          }
-        } finally {
-          if (!cancelled) {
-            setHasLoadedLive(true);
-          }
         }
         return;
       }
@@ -166,20 +146,14 @@ export function EditProviderDialog({
       if (!provider) return;
 
       // 注意：values.settingsConfig 已经是最终的配置字符串
-      // ProviderForm 已经为不同的 app 类型（Claude/Codex/Gemini）正确组装了配置
+      // ProviderForm 已经为 Claude / Claude Desktop 组装好了最终配置
       const parsedConfig = JSON.parse(values.settingsConfig) as Record<
         string,
         unknown
       >;
-      const nextProviderId =
-        (appId === "opencode" || appId === "openclaw") &&
-        values.providerKey?.trim()
-          ? values.providerKey.trim()
-          : provider.id;
-
       const updatedProvider: Provider = {
         ...provider,
-        id: nextProviderId,
+        id: provider.id,
         name: values.name.trim(),
         notes: values.notes?.trim() || undefined,
         websiteUrl: values.websiteUrl?.trim() || undefined,
@@ -200,7 +174,7 @@ export function EditProviderDialog({
     [appId, onSubmit, onOpenChange, provider],
   );
 
-  if (!provider || !initialData) {
+  if (!provider || !initialData || !isClaudeLikeApp) {
     return null;
   }
 

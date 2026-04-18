@@ -450,6 +450,18 @@ impl SkillService {
         Self
     }
 
+    fn is_supported_app(app: &AppType) -> bool {
+        matches!(app, AppType::Claude)
+    }
+
+    fn ensure_supported_app(app: &AppType) -> Result<()> {
+        if Self::is_supported_app(app) {
+            Ok(())
+        } else {
+            Err(anyhow!("Skills 仅支持 Claude，收到: {}", app.as_str()))
+        }
+    }
+
     /// 构建 Skill 文档 URL（指向仓库中的 SKILL.md 文件）
     fn build_skill_doc_url(owner: &str, repo: &str, branch: &str, doc_path: &str) -> String {
         format!("https://github.com/{owner}/{repo}/blob/{branch}/{doc_path}")
@@ -514,26 +526,6 @@ impl SkillService {
                     return Ok(custom.join("skills"));
                 }
             }
-            AppType::Codex => {
-                if let Some(custom) = crate::settings::get_codex_override_dir() {
-                    return Ok(custom.join("skills"));
-                }
-            }
-            AppType::Gemini => {
-                if let Some(custom) = crate::settings::get_gemini_override_dir() {
-                    return Ok(custom.join("skills"));
-                }
-            }
-            AppType::OpenCode => {
-                if let Some(custom) = crate::settings::get_opencode_override_dir() {
-                    return Ok(custom.join("skills"));
-                }
-            }
-            AppType::OpenClaw => {
-                if let Some(custom) = crate::settings::get_openclaw_override_dir() {
-                    return Ok(custom.join("skills"));
-                }
-            }
         }
 
         // 默认路径：回退到用户主目录下的标准位置
@@ -548,10 +540,6 @@ impl SkillService {
             AppType::ClaudeDesktop => {
                 crate::claude_desktop_config::resolve_profile_dir().join("skills")
             }
-            AppType::Codex => home.join(".codex").join("skills"),
-            AppType::Gemini => home.join(".gemini").join("skills"),
-            AppType::OpenCode => home.join(".config").join("opencode").join("skills"),
-            AppType::OpenClaw => home.join(".openclaw").join("skills"),
         })
     }
 
@@ -575,6 +563,8 @@ impl SkillService {
         skill: &DiscoverableSkill,
         current_app: &AppType,
     ) -> Result<InstalledSkill> {
+        Self::ensure_supported_app(current_app)?;
+
         let ssot_dir = Self::get_ssot_dir()?;
 
         // 允许多级目录（如 a/b/c），但必须是安全的相对路径。
@@ -1304,6 +1294,8 @@ impl SkillService {
         backup_id: &str,
         current_app: &AppType,
     ) -> Result<InstalledSkill> {
+        Self::ensure_supported_app(current_app)?;
+
         let backup_path = Self::backup_path_for_id(backup_id)?;
         let metadata = Self::read_backup_metadata(&backup_path)?;
         let backup_skill_dir = backup_path.join("skill");
@@ -1374,6 +1366,8 @@ impl SkillService {
     /// 启用：复制到应用目录
     /// 禁用：从应用目录删除
     pub fn toggle_app(db: &Arc<Database>, id: &str, app: &AppType, enabled: bool) -> Result<()> {
+        Self::ensure_supported_app(app)?;
+
         // 获取当前 skill
         let mut skill = db
             .get_installed_skill(id)?
@@ -1529,7 +1523,10 @@ impl SkillService {
             let (name, description) = Self::read_skill_name_desc(&skill_md, &dir_name);
 
             // 启用状态仅信任用户本次显式选择，不再根据“在哪些位置找到”自动推断。
-            let apps = selection.apps;
+            let apps = SkillApps {
+                claude: selection.apps.claude,
+                ..SkillApps::default()
+            };
 
             // 从 lock 文件提取仓库信息
             let (id, repo_owner, repo_name, repo_branch, readme_url) =
@@ -1602,6 +1599,8 @@ impl SkillService {
     /// - Symlink: 仅使用 symlink
     /// - Copy: 仅使用文件复制
     pub fn sync_to_app_dir(directory: &str, app: &AppType) -> Result<()> {
+        Self::ensure_supported_app(app)?;
+
         let ssot_dir = Self::get_ssot_dir()?;
         let source = ssot_dir.join(directory);
 
@@ -1707,6 +1706,10 @@ impl SkillService {
 
     /// 从应用目录删除 Skill（支持 symlink 和真实目录）
     pub fn remove_from_app(directory: &str, app: &AppType) -> Result<()> {
+        if !Self::is_supported_app(app) {
+            return Ok(());
+        }
+
         let app_dir = Self::get_app_skills_dir(app)?;
         let skill_path = app_dir.join(directory);
 
@@ -1720,6 +1723,10 @@ impl SkillService {
 
     /// 同步所有已启用的 Skills 到指定应用
     pub fn sync_to_app(db: &Arc<Database>, app: &AppType) -> Result<()> {
+        if !Self::is_supported_app(app) {
+            return Ok(());
+        }
+
         let skills = db.get_all_installed_skills()?;
         let ssot_dir = Self::get_ssot_dir()?;
         let app_dir = Self::get_app_skills_dir(app)?;

@@ -7,7 +7,7 @@ import type { EnvConflict, BackupInfo } from "@/types/env";
 
 /**
  * 检查指定应用的环境变量冲突
- * @param appType 应用类型 ("claude" | "codex" | "gemini")
+ * @param appType 应用类型（当前仅使用 "claude"）
  * @returns 环境变量冲突列表
  */
 export async function checkEnvConflicts(
@@ -36,13 +36,13 @@ export async function restoreEnvBackup(backupPath: string): Promise<void> {
 }
 
 /**
- * 检查所有应用的环境变量冲突
+ * 检查当前支持应用的环境变量冲突
  * @returns 按应用类型分组的环境变量冲突
  */
 export async function checkAllEnvConflicts(): Promise<
   Record<string, EnvConflict[]>
 > {
-  const apps = ["claude", "codex", "gemini"];
+  const apps = ["claude"];
   const results: Record<string, EnvConflict[]> = {};
 
   await Promise.all(

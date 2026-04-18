@@ -222,10 +222,8 @@ export function DeepLinkImportDialog() {
 
   // Parse config file content for display
   interface ParsedConfig {
-    type: "claude" | "codex" | "gemini";
+    type: "claude";
     env?: Record<string, string>;
-    auth?: Record<string, string>;
-    tomlConfig?: string;
     raw: Record<string, unknown>;
   }
 
@@ -252,21 +250,6 @@ export function DeepLinkImportDialog() {
         return {
           type: "claude",
           env: (parsed.env as Record<string, string>) || {},
-          raw: parsed,
-        };
-      } else if (request.app === "codex") {
-        // Codex 格式: { auth: { OPENAI_API_KEY: ... }, config: "TOML string" }
-        return {
-          type: "codex",
-          auth: (parsed.auth as Record<string, string>) || {},
-          tomlConfig: (parsed.config as string) || "",
-          raw: parsed,
-        };
-      } else if (request.app === "gemini") {
-        // Gemini 格式: 扁平结构 { GEMINI_API_KEY: ..., GEMINI_BASE_URL: ... }
-        return {
-          type: "gemini",
-          env: parsed as Record<string, string>,
           raw: parsed,
         };
       }
@@ -467,7 +450,7 @@ export function DeepLinkImportDialog() {
                     </>
                   ) : (
                     <>
-                      {/* Codex 和 Gemini 使用通用 model 字段 */}
+                      {/* 兼容导入路径统一使用通用 model 字段 */}
                       {request.model && (
                         <div className="grid grid-cols-3 items-center gap-4">
                           <div className="font-medium text-sm text-muted-foreground">
@@ -523,69 +506,6 @@ export function DeepLinkImportDialog() {
 
                           {/* Claude config */}
                           {parsedConfig.type === "claude" &&
-                            parsedConfig.env && (
-                              <div className="space-y-1.5">
-                                {Object.entries(parsedConfig.env).map(
-                                  ([key, value]) => (
-                                    <div
-                                      key={key}
-                                      className="grid grid-cols-2 gap-2 text-xs"
-                                    >
-                                      <span className="font-mono text-muted-foreground truncate">
-                                        {key}
-                                      </span>
-                                      <span className="font-mono truncate">
-                                        {maskValue(key, String(value))}
-                                      </span>
-                                    </div>
-                                  ),
-                                )}
-                              </div>
-                            )}
-
-                          {/* Codex config */}
-                          {parsedConfig.type === "codex" && (
-                            <div className="space-y-2">
-                              {parsedConfig.auth &&
-                                Object.keys(parsedConfig.auth).length > 0 && (
-                                  <div className="space-y-1.5">
-                                    <div className="text-xs text-muted-foreground">
-                                      Auth:
-                                    </div>
-                                    {Object.entries(parsedConfig.auth).map(
-                                      ([key, value]) => (
-                                        <div
-                                          key={key}
-                                          className="grid grid-cols-2 gap-2 text-xs pl-2"
-                                        >
-                                          <span className="font-mono text-muted-foreground truncate">
-                                            {key}
-                                          </span>
-                                          <span className="font-mono truncate">
-                                            {maskValue(key, String(value))}
-                                          </span>
-                                        </div>
-                                      ),
-                                    )}
-                                  </div>
-                                )}
-                              {parsedConfig.tomlConfig && (
-                                <div className="space-y-1">
-                                  <div className="text-xs text-muted-foreground">
-                                    TOML Config:
-                                  </div>
-                                  <pre className="text-xs font-mono bg-background p-2 rounded overflow-x-auto max-h-24 whitespace-pre-wrap">
-                                    {parsedConfig.tomlConfig.substring(0, 300)}
-                                    {parsedConfig.tomlConfig.length > 300 &&
-                                      "..."}
-                                  </pre>
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          {/* Gemini config */}
-                          {parsedConfig.type === "gemini" &&
                             parsedConfig.env && (
                               <div className="space-y-1.5">
                                 {Object.entries(parsedConfig.env).map(

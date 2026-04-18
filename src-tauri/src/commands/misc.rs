@@ -7,7 +7,6 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use tauri::AppHandle;
 use tauri::State;
 use tauri_plugin_opener::OpenerExt;
@@ -17,6 +16,14 @@ use std::os::windows::process::CommandExt;
 
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+fn parse_terminal_provider_app(app: &str) -> Result<AppType, String> {
+    match app.trim().to_lowercase().as_str() {
+        "claude" => Ok(AppType::Claude),
+        "claude_desktop" | "claudedesktop" | "claude-desktop" => Ok(AppType::ClaudeDesktop),
+        _ => Err(format!("终端仅支持 claude 或 claude_desktop，收到: {app}")),
+    }
+}
 
 /// 打开外部链接
 #[tauri::command]
@@ -108,7 +115,7 @@ pub struct ToolVersion {
     wsl_distro: Option<String>,
 }
 
-const VALID_TOOLS: [&str; 4] = ["claude", "codex", "gemini", "opencode"];
+const VALID_TOOLS: [&str; 1] = ["claude"];
 
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -217,9 +224,6 @@ async fn get_single_tool_version_impl(
     // 2. 获取远程最新版本
     let latest_version = match tool {
         "claude" => fetch_npm_latest_version(&client, "@anthropic-ai/claude-code").await,
-        "codex" => fetch_npm_latest_version(&client, "@openai/codex").await,
-        "gemini" => fetch_npm_latest_version(&client, "@google/gemini-cli").await,
-        "opencode" => fetch_github_latest_version(&client, "anomalyco/opencode").await,
         _ => None,
     };
 
@@ -243,29 +247,6 @@ async fn fetch_npm_latest_version(client: &reqwest::Client, package: &str) -> Op
                     .and_then(|tags| tags.get("latest"))
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string())
-            } else {
-                None
-            }
-        }
-        Err(_) => None,
-    }
-}
-
-/// Helper function to fetch latest version from GitHub releases
-async fn fetch_github_latest_version(client: &reqwest::Client, repo: &str) -> Option<String> {
-    let url = format!("https://api.github.com/repos/{repo}/releases/latest");
-    match client
-        .get(&url)
-        .header("User-Agent", "ykw-bridge")
-        .header("Accept", "application/vnd.github+json")
-        .send()
-        .await
-    {
-        Ok(resp) => {
-            if let Ok(json) = resp.json::<serde_json::Value>().await {
-                json.get("tag_name")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.strip_prefix('v').unwrap_or(s).to_string())
             } else {
                 None
             }
@@ -379,10 +360,7 @@ fn try_get_version_wsl(
     use std::process::Command;
 
     // 防御性断言：tool 只能是预定义的值
-    debug_assert!(
-        ["claude", "codex", "gemini", "opencode"].contains(&tool),
-        "unexpected tool name: {tool}"
-    );
+    debug_assert!(["claude"].contains(&tool), "unexpected tool name: {tool}");
 
     // 校验 distro 名称，防止命令注入
     if !is_valid_wsl_distro_name(distro) {
@@ -492,55 +470,6 @@ fn push_unique_path(paths: &mut Vec<std::path::PathBuf>, path: std::path::PathBu
     }
 }
 
-fn push_env_single_dir(paths: &mut Vec<std::path::PathBuf>, value: Option<std::ffi::OsString>) {
-    if let Some(raw) = value {
-        push_unique_path(paths, std::path::PathBuf::from(raw));
-    }
-}
-
-fn extend_from_path_list(
-    paths: &mut Vec<std::path::PathBuf>,
-    value: Option<std::ffi::OsString>,
-    suffix: Option<&str>,
-) {
-    if let Some(raw) = value {
-        for p in std::env::split_paths(&raw) {
-            let dir = match suffix {
-                Some(s) => p.join(s),
-                None => p,
-            };
-            push_unique_path(paths, dir);
-        }
-    }
-}
-
-/// OpenCode install.sh 路径优先级（见 https://github.com/anomalyco/opencode README）:
-///   $OPENCODE_INSTALL_DIR > $XDG_BIN_DIR > $HOME/bin > $HOME/.opencode/bin
-/// 额外扫描 Bun 默认全局安装路径（~/.bun/bin）
-/// 和 Go 安装路径（~/go/bin、$GOPATH/*/bin）。
-fn opencode_extra_search_paths(
-    home: &Path,
-    opencode_install_dir: Option<std::ffi::OsString>,
-    xdg_bin_dir: Option<std::ffi::OsString>,
-    gopath: Option<std::ffi::OsString>,
-) -> Vec<std::path::PathBuf> {
-    let mut paths = Vec::new();
-
-    push_env_single_dir(&mut paths, opencode_install_dir);
-    push_env_single_dir(&mut paths, xdg_bin_dir);
-
-    if !home.as_os_str().is_empty() {
-        push_unique_path(&mut paths, home.join("bin"));
-        push_unique_path(&mut paths, home.join(".opencode").join("bin"));
-        push_unique_path(&mut paths, home.join(".bun").join("bin"));
-        push_unique_path(&mut paths, home.join("go").join("bin"));
-    }
-
-    extend_from_path_list(&mut paths, gopath, Some("bin"));
-
-    paths
-}
-
 fn tool_executable_candidates(tool: &str, dir: &Path) -> Vec<std::path::PathBuf> {
     #[cfg(target_os = "windows")]
     {
@@ -628,19 +557,6 @@ fn scan_cli_version(tool: &str) -> (Option<String>, Option<String>) {
         }
     }
 
-    if tool == "opencode" {
-        let extra_paths = opencode_extra_search_paths(
-            &home,
-            std::env::var_os("OPENCODE_INSTALL_DIR"),
-            std::env::var_os("XDG_BIN_DIR"),
-            std::env::var_os("GOPATH"),
-        );
-
-        for path in extra_paths {
-            push_unique_path(&mut search_paths, path);
-        }
-    }
-
     let current_path = std::env::var("PATH").unwrap_or_default();
 
     for path in &search_paths {
@@ -692,9 +608,6 @@ fn scan_cli_version(tool: &str) -> (Option<String>, Option<String>) {
 fn wsl_distro_for_tool(tool: &str) -> Option<String> {
     let override_dir = match tool {
         "claude" => crate::settings::get_claude_override_dir(),
-        "codex" => crate::settings::get_codex_override_dir(),
-        "gemini" => crate::settings::get_gemini_override_dir(),
-        "opencode" => crate::settings::get_opencode_override_dir(),
         _ => None,
     }?;
 
@@ -738,7 +651,7 @@ pub async fn open_provider_terminal(
     #[allow(non_snake_case)] providerId: String,
     cwd: Option<String>,
 ) -> Result<bool, String> {
-    let app_type = AppType::from_str(&app).map_err(|e| e.to_string())?;
+    let app_type = parse_terminal_provider_app(&app)?;
     let launch_cwd = resolve_launch_cwd(cwd)?;
 
     // 获取提供商配置
@@ -751,7 +664,7 @@ pub async fn open_provider_terminal(
 
     // 从提供商配置中提取环境变量
     let config = &provider.settings_config;
-    let env_vars = extract_env_vars_from_config(config, &app_type);
+    let env_vars = extract_env_vars_from_config(config);
 
     // 根据平台启动终端，传入提供商ID用于生成唯一的配置文件名
     launch_terminal_with_env(env_vars, &providerId, launch_cwd.as_deref())
@@ -761,49 +674,19 @@ pub async fn open_provider_terminal(
 }
 
 /// 从提供商配置中提取环境变量
-fn extract_env_vars_from_config(
-    config: &serde_json::Value,
-    app_type: &AppType,
-) -> Vec<(String, String)> {
+fn extract_env_vars_from_config(config: &serde_json::Value) -> Vec<(String, String)> {
     let mut env_vars = Vec::new();
 
     let Some(obj) = config.as_object() else {
         return env_vars;
     };
 
-    // 处理 env 字段（Claude/Gemini 通用）
+    // Claude/Claude Desktop provider configs are JSON objects with an env map.
     if let Some(env) = obj.get("env").and_then(|v| v.as_object()) {
         for (key, value) in env {
             if let Some(str_val) = value.as_str() {
                 env_vars.push((key.clone(), str_val.to_string()));
             }
-        }
-
-        // 处理 base_url: 根据应用类型添加对应的环境变量
-        let base_url_key = match app_type {
-            AppType::Claude => Some("ANTHROPIC_BASE_URL"),
-            AppType::Gemini => Some("GOOGLE_GEMINI_BASE_URL"),
-            _ => None,
-        };
-
-        if let Some(key) = base_url_key {
-            if let Some(url_str) = env.get(key).and_then(|v| v.as_str()) {
-                env_vars.push((key.to_string(), url_str.to_string()));
-            }
-        }
-    }
-
-    // Codex 使用 auth 字段转换为 OPENAI_API_KEY
-    if *app_type == AppType::Codex {
-        if let Some(auth) = obj.get("auth").and_then(|v| v.as_str()) {
-            env_vars.push(("OPENAI_API_KEY".to_string(), auth.to_string()));
-        }
-    }
-
-    // Gemini 使用 api_key 字段转换为 GEMINI_API_KEY
-    if *app_type == AppType::Gemini {
-        if let Some(api_key) = obj.get("api_key").and_then(|v| v.as_str()) {
-            env_vars.push(("GEMINI_API_KEY".to_string(), api_key.to_string()));
         }
     }
 
@@ -1328,6 +1211,7 @@ pub async fn set_window_theme(window: tauri::Window, theme: String) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
     use std::path::PathBuf;
 
     #[test]
@@ -1335,6 +1219,52 @@ mod tests {
         assert_eq!(extract_version("claude 1.0.20"), "1.0.20");
         assert_eq!(extract_version("v2.3.4-beta.1"), "2.3.4-beta.1");
         assert_eq!(extract_version("no version here"), "no version here");
+    }
+
+    #[test]
+    fn parse_terminal_provider_app_accepts_claude_apps() {
+        assert_eq!(
+            parse_terminal_provider_app("claude").expect("claude should parse"),
+            AppType::Claude
+        );
+        assert_eq!(
+            parse_terminal_provider_app("claude_desktop").expect("claude_desktop should parse"),
+            AppType::ClaudeDesktop
+        );
+    }
+
+    #[test]
+    fn parse_terminal_provider_app_rejects_removed_apps() {
+        let err =
+            parse_terminal_provider_app("openclaw").expect_err("removed app should be rejected");
+        assert!(
+            err.contains("仅支持 claude 或 claude_desktop"),
+            "unexpected error message: {err}"
+        );
+    }
+
+    #[test]
+    fn extract_env_vars_from_config_reads_string_env_values_only() {
+        let env_vars = extract_env_vars_from_config(&json!({
+            "env": {
+                "ANTHROPIC_AUTH_TOKEN": "test-token",
+                "ANTHROPIC_BASE_URL": "https://api.example.com",
+                "IGNORED_BOOL": true
+            },
+            "auth": "legacy-auth",
+            "api_key": "legacy-key"
+        }));
+
+        assert_eq!(
+            env_vars,
+            vec![
+                ("ANTHROPIC_AUTH_TOKEN".to_string(), "test-token".to_string()),
+                (
+                    "ANTHROPIC_BASE_URL".to_string(),
+                    "https://api.example.com".to_string()
+                ),
+            ]
+        );
     }
 
     #[cfg(target_os = "windows")]
@@ -1387,73 +1317,27 @@ mod tests {
         }
     }
 
-    #[test]
-    fn opencode_extra_search_paths_includes_install_and_fallback_dirs() {
-        let home = PathBuf::from("/home/tester");
-        let install_dir = Some(std::ffi::OsString::from("/custom/opencode/bin"));
-        let xdg_bin_dir = Some(std::ffi::OsString::from("/xdg/bin"));
-        let gopath =
-            std::env::join_paths([PathBuf::from("/go/path1"), PathBuf::from("/go/path2")]).ok();
-
-        let paths = opencode_extra_search_paths(&home, install_dir, xdg_bin_dir, gopath);
-
-        assert_eq!(paths[0], PathBuf::from("/custom/opencode/bin"));
-        assert_eq!(paths[1], PathBuf::from("/xdg/bin"));
-        assert!(paths.contains(&PathBuf::from("/home/tester/bin")));
-        assert!(paths.contains(&PathBuf::from("/home/tester/.opencode/bin")));
-        assert!(paths.contains(&PathBuf::from("/home/tester/.bun/bin")));
-        assert!(paths.contains(&PathBuf::from("/home/tester/go/bin")));
-        assert!(paths.contains(&PathBuf::from("/go/path1/bin")));
-        assert!(paths.contains(&PathBuf::from("/go/path2/bin")));
-    }
-
-    #[test]
-    fn opencode_extra_search_paths_deduplicates_repeated_entries() {
-        let home = PathBuf::from("/home/tester");
-        let same_dir = Some(std::ffi::OsString::from("/same/path"));
-
-        let paths = opencode_extra_search_paths(&home, same_dir.clone(), same_dir, None);
-
-        let count = paths
-            .iter()
-            .filter(|path| **path == PathBuf::from("/same/path"))
-            .count();
-        assert_eq!(count, 1);
-    }
-
-    #[test]
-    fn opencode_extra_search_paths_deduplicates_bun_default_dir() {
-        let home = PathBuf::from("/home/tester");
-        let paths = opencode_extra_search_paths(&home, None, None, None);
-
-        let count = paths
-            .iter()
-            .filter(|path| **path == PathBuf::from("/home/tester/.bun/bin"))
-            .count();
-        assert_eq!(count, 1);
-    }
-
     #[cfg(not(target_os = "windows"))]
     #[test]
     fn tool_executable_candidates_non_windows_uses_plain_binary_name() {
         let dir = PathBuf::from("/usr/local/bin");
-        let candidates = tool_executable_candidates("opencode", &dir);
+        let candidates = tool_executable_candidates("claude", &dir);
 
-        assert_eq!(candidates, vec![PathBuf::from("/usr/local/bin/opencode")]);
+        assert_eq!(candidates, vec![PathBuf::from("/usr/local/bin/claude")]);
     }
 
     #[cfg(target_os = "windows")]
     #[test]
     fn tool_executable_candidates_windows_includes_cmd_exe_and_plain_name() {
         let dir = PathBuf::from("C:\\tools");
-        let candidates = tool_executable_candidates("opencode", &dir);
+        let candidates = tool_executable_candidates("claude", &dir);
 
         assert_eq!(
             candidates,
             vec![
-                PathBuf::from("C:\\tools\\opencode.cmd"),
-                PathBuf::from("C:\\tools\\opencode.exe"),
-                PathBuf::from("C:\\tools\\opencode"),
+                PathBuf::from("C:\\tools\\claude.cmd"),
+                PathBuf::from("C:\\tools\\claude.exe"),
+                PathBuf::from("C:\\tools\\claude"),
             ]
         );
     }

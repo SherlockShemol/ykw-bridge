@@ -24,18 +24,16 @@ pub(crate) struct OfficialProviderSeed {
 /// Claude 专版的官方预设。
 ///
 /// id 固定，便于幂等检查；name 直接用英文原名（与前端预设一致），不做 i18n。
-pub(crate) const OFFICIAL_SEEDS: &[OfficialProviderSeed] = &[
-    OfficialProviderSeed {
-        id: "claude-official",
-        app_type: AppType::Claude,
-        name: "Claude Official",
-        website_url: "https://www.anthropic.com/claude-code",
-        icon: "anthropic",
-        icon_color: "#D4915D",
-        // 空 env 让用户走 Claude CLI 默认认证流程
-        settings_config_json: r#"{"env":{}}"#,
-    },
-];
+pub(crate) const OFFICIAL_SEEDS: &[OfficialProviderSeed] = &[OfficialProviderSeed {
+    id: "claude-official",
+    app_type: AppType::Claude,
+    name: "Claude Official",
+    website_url: "https://www.anthropic.com/claude-code",
+    icon: "anthropic",
+    icon_color: "#D4915D",
+    // 空 env 让用户走 Claude CLI 默认认证流程
+    settings_config_json: r#"{"env":{}}"#,
+}];
 
 /// 判断给定的 provider id 是否属于内置官方种子。
 ///

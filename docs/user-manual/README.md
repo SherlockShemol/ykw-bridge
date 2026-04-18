@@ -1,6 +1,6 @@
 # YKW Bridge User Manual / 用户手册 / ユーザーマニュアル
 
-> Claude Code / Codex / Gemini CLI / OpenCode / OpenClaw
+> Claude Code + Claude Desktop
 
 ## Language / 语言 / 言語
 

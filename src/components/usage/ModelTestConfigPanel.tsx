@@ -24,8 +24,6 @@ export function ModelTestConfigPanel() {
     maxRetries: "2",
     degradedThresholdMs: "6000",
     claudeModel: "claude-haiku-4-5-20251001",
-    codexModel: "gpt-5.4@low",
-    geminiModel: "gemini-3-pro-preview",
     testPrompt: "Who are you?",
   });
 
@@ -43,8 +41,6 @@ export function ModelTestConfigPanel() {
         maxRetries: String(data.maxRetries),
         degradedThresholdMs: String(data.degradedThresholdMs),
         claudeModel: data.claudeModel,
-        codexModel: data.codexModel,
-        geminiModel: data.geminiModel,
         testPrompt: data.testPrompt || "Who are you?",
       });
     } catch (e) {
@@ -67,8 +63,6 @@ export function ModelTestConfigPanel() {
         maxRetries: parseNum(config.maxRetries, 2),
         degradedThresholdMs: parseNum(config.degradedThresholdMs, 6000),
         claudeModel: config.claudeModel,
-        codexModel: config.codexModel,
-        geminiModel: config.geminiModel,
         testPrompt: config.testPrompt || "Who are you?",
       };
       await saveStreamCheckConfig(parsed);

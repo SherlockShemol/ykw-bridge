@@ -31,12 +31,12 @@ pub fn check_env_conflicts(app: &str) -> Result<Vec<EnvConflict>, String> {
     Ok(conflicts)
 }
 
-/// Get relevant keywords for each app
+/// Get relevant keywords for supported Claude apps
 fn get_keywords_for_app(app: &str) -> Vec<&str> {
     match app.to_lowercase().as_str() {
-        "claude" => vec!["ANTHROPIC"],
-        "codex" => vec!["OPENAI"],
-        "gemini" => vec!["GEMINI", "GOOGLE_GEMINI"],
+        "claude" | "claude_desktop" | "claudedesktop" | "claude-desktop" => {
+            vec!["ANTHROPIC"]
+        }
         _ => vec![],
     }
 }
@@ -158,11 +158,7 @@ mod tests {
     #[test]
     fn test_get_keywords() {
         assert_eq!(get_keywords_for_app("claude"), vec!["ANTHROPIC"]);
-        assert_eq!(get_keywords_for_app("codex"), vec!["OPENAI"]);
-        assert_eq!(
-            get_keywords_for_app("gemini"),
-            vec!["GEMINI", "GOOGLE_GEMINI"]
-        );
+        assert_eq!(get_keywords_for_app("claude_desktop"), vec!["ANTHROPIC"]);
         assert_eq!(get_keywords_for_app("unknown"), Vec::<&str>::new());
     }
 }

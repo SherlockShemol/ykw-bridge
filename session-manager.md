@@ -1,13 +1,13 @@
 # 会话管理（Session Manager）需求文档（PRD / Markdown）
 
-> 目标：对 **Codex / Claude Code** 的本地会话记录进行可视化管理，并提供“一键复制 / 一键终端恢复”能力。
+> 目标：对 **Claude Code** 的本地会话记录进行可视化管理，并提供“一键复制 / 一键终端恢复”能力。
 > 范围：**v1 仅 macOS**，但必须预留多平台扩展入口。
 
 ---
 
 ## 1. 背景与问题
 
-开发者同时使用 Codex CLI、Claude Code 时，常见痛点：
+开发者在 Claude Code 中高频切换项目时，常见痛点：
 - 会话记录落在本地不同位置，**难以发现/检索**
 - 找到会话后，恢复命令需要记忆或翻历史，**恢复成本高**
 - 恢复时经常忘了当时的工作目录，导致命令在错误目录运行
@@ -18,7 +18,7 @@
 ## 2. 目标与非目标
 
 ### 2.1 Goals（v1 必达）
-1. 扫描并展示本机所有 Codex / Claude Code 会话：列表 + 详情（会话内容）
+1. 扫描并展示本机所有 Claude Code 会话：列表 + 详情（会话内容）
 2. 支持恢复会话：
    - 复制恢复命令（按钮）
    - 复制会话目录（按钮，若能获取/推断）
@@ -62,7 +62,7 @@
 
 ### 5.1 会话发现与索引（Discovery & Indexing）
 **FR-1** 扫描本地会话数据源，生成统一的 Session 列表
-- 支持 Provider：Codex、Claude Code（可扩展）
+- 支持 Provider：Claude Code（可扩展）
 - 支持全量扫描 + 增量更新
 - 支持缺失/异常文件的容错（不中断 UI）
 
@@ -78,7 +78,7 @@
 
 ### 5.2 会话列表（List）
 **FR-4** 列表展示字段（建议最小集）
-- Provider（Codex / Claude）
+- Provider（Claude）
 - Session 标识（id/short id）
 - 最近活跃时间（lastActiveAt）
 - 目录（projectDir，若未知显示 “Unknown”）
@@ -189,7 +189,7 @@
 ## 9. 关键数据结构（建议）
 
 ### 9.1 SessionMeta
-- `providerId: "codex" | "claude" | string`
+- `providerId: "claude" | string`
 - `sessionId: string`
 - `title?: string`
 - `summary?: string`
@@ -238,7 +238,7 @@
 ## 12. 里程碑与交付（建议）
 
 ### M1（核心可用）
-- Provider 扫描：Codex / Claude
+- Provider 扫描：Claude
 - 列表 + 详情（可读）
 - 复制恢复命令
 - 复制目录（若可得）

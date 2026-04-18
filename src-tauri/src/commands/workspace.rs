@@ -3,8 +3,15 @@ use std::sync::LazyLock;
 use tauri::AppHandle;
 use tauri_plugin_opener::OpenerExt;
 
-use crate::config::write_text_file;
-use crate::openclaw_config::get_openclaw_dir;
+use crate::config::{get_app_config_dir, write_text_file};
+
+fn get_workspace_dir() -> std::path::PathBuf {
+    get_app_config_dir().join("workspace")
+}
+
+fn get_daily_memory_dir() -> std::path::PathBuf {
+    get_workspace_dir().join("memory")
+}
 
 /// Allowed workspace filenames (whitelist for security)
 const ALLOWED_FILES: &[&str] = &[
@@ -58,7 +65,7 @@ pub struct DailyMemoryFileInfo {
 /// List all daily memory files under `workspace/memory/`.
 #[tauri::command]
 pub async fn list_daily_memory_files() -> Result<Vec<DailyMemoryFileInfo>, String> {
-    let memory_dir = get_openclaw_dir().join("workspace").join("memory");
+    let memory_dir = get_daily_memory_dir();
 
     if !memory_dir.exists() {
         return Ok(Vec::new());
@@ -119,10 +126,7 @@ pub async fn list_daily_memory_files() -> Result<Vec<DailyMemoryFileInfo>, Strin
 pub async fn read_daily_memory_file(filename: String) -> Result<Option<String>, String> {
     validate_daily_memory_filename(&filename)?;
 
-    let path = get_openclaw_dir()
-        .join("workspace")
-        .join("memory")
-        .join(&filename);
+    let path = get_daily_memory_dir().join(&filename);
 
     if !path.exists() {
         return Ok(None);
@@ -138,7 +142,7 @@ pub async fn read_daily_memory_file(filename: String) -> Result<Option<String>, 
 pub async fn write_daily_memory_file(filename: String, content: String) -> Result<(), String> {
     validate_daily_memory_filename(&filename)?;
 
-    let memory_dir = get_openclaw_dir().join("workspace").join("memory");
+    let memory_dir = get_daily_memory_dir();
 
     std::fs::create_dir_all(&memory_dir)
         .map_err(|e| format!("Failed to create memory directory: {e}"))?;
@@ -194,7 +198,7 @@ pub struct DailyMemorySearchResult {
 pub async fn search_daily_memory_files(
     query: String,
 ) -> Result<Vec<DailyMemorySearchResult>, String> {
-    let memory_dir = get_openclaw_dir().join("workspace").join("memory");
+    let memory_dir = get_daily_memory_dir();
 
     if !memory_dir.exists() || query.is_empty() {
         return Ok(Vec::new());
@@ -289,10 +293,7 @@ pub async fn search_daily_memory_files(
 pub async fn delete_daily_memory_file(filename: String) -> Result<(), String> {
     validate_daily_memory_filename(&filename)?;
 
-    let path = get_openclaw_dir()
-        .join("workspace")
-        .join("memory")
-        .join(&filename);
+    let path = get_daily_memory_dir().join(&filename);
 
     if path.exists() {
         std::fs::remove_file(&path)
@@ -304,13 +305,13 @@ pub async fn delete_daily_memory_file(filename: String) -> Result<(), String> {
 
 // --- Workspace file commands ---
 
-/// Read an OpenClaw workspace file content.
+/// Read a workspace file content.
 /// Returns None if the file does not exist.
 #[tauri::command]
 pub async fn read_workspace_file(filename: String) -> Result<Option<String>, String> {
     validate_filename(&filename)?;
 
-    let path = get_openclaw_dir().join("workspace").join(&filename);
+    let path = get_workspace_dir().join(&filename);
 
     if !path.exists() {
         return Ok(None);
@@ -321,13 +322,13 @@ pub async fn read_workspace_file(filename: String) -> Result<Option<String>, Str
         .map_err(|e| format!("Failed to read workspace file {filename}: {e}"))
 }
 
-/// Write content to an OpenClaw workspace file (atomic write).
+/// Write content to a workspace file (atomic write).
 /// Creates the workspace directory if it does not exist.
 #[tauri::command]
 pub async fn write_workspace_file(filename: String, content: String) -> Result<(), String> {
     validate_filename(&filename)?;
 
-    let workspace_dir = get_openclaw_dir().join("workspace");
+    let workspace_dir = get_workspace_dir();
 
     // Ensure workspace directory exists
     std::fs::create_dir_all(&workspace_dir)
@@ -340,13 +341,13 @@ pub async fn write_workspace_file(filename: String, content: String) -> Result<(
 }
 
 /// Open the workspace or memory directory in the system file manager.
-/// `subdir`: "workspace" opens `~/.openclaw/workspace/`,
-///           "memory" opens `~/.openclaw/workspace/memory/`.
+/// `subdir`: "workspace" opens `<app_config_dir>/workspace/`,
+///           "memory" opens `<app_config_dir>/workspace/memory/`.
 #[tauri::command]
 pub async fn open_workspace_directory(handle: AppHandle, subdir: String) -> Result<bool, String> {
     let dir = match subdir.as_str() {
-        "memory" => get_openclaw_dir().join("workspace").join("memory"),
-        _ => get_openclaw_dir().join("workspace"),
+        "memory" => get_daily_memory_dir(),
+        _ => get_workspace_dir(),
     };
 
     if !dir.exists() {

@@ -8,7 +8,6 @@ import { usageApi, settingsApi, type AppId } from "@/lib/api";
 import { copilotGetUsage, copilotGetUsageForAccount } from "@/lib/api/copilot";
 import { useSettingsQuery } from "@/lib/query";
 import { resolveManagedAccountId } from "@/lib/authBinding";
-import { extractCodexBaseUrl } from "@/utils/providerConfigUtils";
 import JsonEditor from "./JsonEditor";
 import * as prettier from "prettier/standalone";
 import * as parserBabel from "prettier/parser-babel";
@@ -187,21 +186,6 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
         return {
           apiKey: env.ANTHROPIC_AUTH_TOKEN || env.ANTHROPIC_API_KEY,
           baseUrl: env.ANTHROPIC_BASE_URL,
-        };
-      } else if (appId === "codex") {
-        // Codex: { auth: { OPENAI_API_KEY }, config: TOML string with base_url }
-        const auth = (config as any).auth || {};
-        const configToml = (config as any).config || "";
-        return {
-          apiKey: auth.OPENAI_API_KEY,
-          baseUrl: extractCodexBaseUrl(configToml),
-        };
-      } else if (appId === "gemini") {
-        // Gemini: { env: { GEMINI_API_KEY, GOOGLE_GEMINI_BASE_URL } }
-        const env = (config as any).env || {};
-        return {
-          apiKey: env.GEMINI_API_KEY,
-          baseUrl: env.GOOGLE_GEMINI_BASE_URL,
         };
       }
       return { apiKey: undefined, baseUrl: undefined };

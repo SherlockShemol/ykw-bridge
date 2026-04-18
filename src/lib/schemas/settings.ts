@@ -20,13 +20,9 @@ export const settingsSchema = z.object({
 
   // 设备级目录覆盖
   claudeConfigDir: directorySchema.nullable().optional(),
-  codexConfigDir: directorySchema.nullable().optional(),
-  geminiConfigDir: directorySchema.nullable().optional(),
 
   // 当前供应商 ID（设备级）
   currentProviderClaude: z.string().optional(),
-  currentProviderCodex: z.string().optional(),
-  currentProviderGemini: z.string().optional(),
 
   // Skill 同步设置
   skillSyncMethod: z.enum(["auto", "symlink", "copy"]).optional(),

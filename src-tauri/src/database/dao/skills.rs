@@ -3,7 +3,7 @@
 //! 提供 Skills 和 Skill Repos 的 CRUD 操作。
 //!
 //! v3.10.0+ 统一管理架构：
-//! - Skills 使用统一的 id 主键，支持四应用启用标志
+//! - Skills 使用统一的 id 主键
 //! - 实际文件存储在 ~/.ykw-bridge/skills/，同步到各应用目录
 
 use crate::app_config::{InstalledSkill, SkillApps};
@@ -22,8 +22,7 @@ impl Database {
         let mut stmt = conn
             .prepare(
                 "SELECT id, name, description, directory, repo_owner, repo_name, repo_branch,
-                        readme_url, enabled_claude, enabled_codex, enabled_gemini, enabled_opencode,
-                        installed_at, content_hash, updated_at
+                        readme_url, enabled_claude, installed_at, content_hash, updated_at
                  FROM skills ORDER BY name ASC",
             )
             .map_err(|e| AppError::Database(e.to_string()))?;
@@ -41,13 +40,12 @@ impl Database {
                     readme_url: row.get(7)?,
                     apps: SkillApps {
                         claude: row.get(8)?,
-                        codex: row.get(9)?,
-                        gemini: row.get(10)?,
-                        opencode: row.get(11)?,
+                        codex: false,
+                        gemini: false,
                     },
-                    installed_at: row.get(12)?,
-                    content_hash: row.get(13)?,
-                    updated_at: row.get::<_, i64>(14).unwrap_or(0),
+                    installed_at: row.get(9)?,
+                    content_hash: row.get(10)?,
+                    updated_at: row.get::<_, i64>(11).unwrap_or(0),
                 })
             })
             .map_err(|e| AppError::Database(e.to_string()))?;
@@ -66,8 +64,7 @@ impl Database {
         let mut stmt = conn
             .prepare(
                 "SELECT id, name, description, directory, repo_owner, repo_name, repo_branch,
-                        readme_url, enabled_claude, enabled_codex, enabled_gemini, enabled_opencode,
-                        installed_at, content_hash, updated_at
+                        readme_url, enabled_claude, installed_at, content_hash, updated_at
                  FROM skills WHERE id = ?1",
             )
             .map_err(|e| AppError::Database(e.to_string()))?;
@@ -84,13 +81,12 @@ impl Database {
                 readme_url: row.get(7)?,
                 apps: SkillApps {
                     claude: row.get(8)?,
-                    codex: row.get(9)?,
-                    gemini: row.get(10)?,
-                    opencode: row.get(11)?,
+                    codex: false,
+                    gemini: false,
                 },
-                installed_at: row.get(12)?,
-                content_hash: row.get(13)?,
-                updated_at: row.get::<_, i64>(14).unwrap_or(0),
+                installed_at: row.get(9)?,
+                content_hash: row.get(10)?,
+                updated_at: row.get::<_, i64>(11).unwrap_or(0),
             })
         });
 
@@ -107,9 +103,9 @@ impl Database {
         conn.execute(
             "INSERT OR REPLACE INTO skills
              (id, name, description, directory, repo_owner, repo_name, repo_branch,
-              readme_url, enabled_claude, enabled_codex, enabled_gemini, enabled_opencode,
+              readme_url, enabled_claude, enabled_codex, enabled_gemini,
               installed_at, content_hash, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 skill.id,
                 skill.name,
@@ -120,9 +116,8 @@ impl Database {
                 skill.repo_branch,
                 skill.readme_url,
                 skill.apps.claude,
-                skill.apps.codex,
-                skill.apps.gemini,
-                skill.apps.opencode,
+                false,
+                false,
                 skill.installed_at,
                 skill.content_hash,
                 skill.updated_at,
@@ -154,8 +149,8 @@ impl Database {
         let conn = lock_conn!(self.conn);
         let affected = conn
             .execute(
-                "UPDATE skills SET enabled_claude = ?1, enabled_codex = ?2, enabled_gemini = ?3, enabled_opencode = ?4 WHERE id = ?5",
-                params![apps.claude, apps.codex, apps.gemini, apps.opencode, id],
+                "UPDATE skills SET enabled_claude = ?1, enabled_codex = ?2, enabled_gemini = ?3 WHERE id = ?4",
+                params![apps.claude, false, false, id],
             )
             .map_err(|e| AppError::Database(e.to_string()))?;
         Ok(affected > 0)

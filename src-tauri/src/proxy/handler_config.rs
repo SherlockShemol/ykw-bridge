@@ -42,59 +42,6 @@ fn claude_model_extractor(events: &[Value], request_model: &str) -> String {
     request_model.to_string()
 }
 
-/// OpenAI Chat Completions 流式响应模型提取（优先使用 usage.model）
-fn openai_model_extractor(events: &[Value], request_model: &str) -> String {
-    // 首先尝试从解析的 usage 中获取模型
-    if let Some(usage) = TokenUsage::from_openai_stream_events(events) {
-        if let Some(model) = usage.model {
-            return model;
-        }
-    }
-    // 回退：从事件中直接提取
-    events
-        .iter()
-        .find_map(|e| e.get("model")?.as_str())
-        .unwrap_or(request_model)
-        .to_string()
-}
-
-/// Codex 智能流式响应模型提取（自动检测格式）
-fn codex_auto_model_extractor(events: &[Value], request_model: &str) -> String {
-    // 首先尝试从解析的 usage 中获取模型
-    if let Some(usage) = TokenUsage::from_codex_stream_events_auto(events) {
-        if let Some(model) = usage.model {
-            return model;
-        }
-    }
-    // 回退：从 response.completed 事件中提取
-    events
-        .iter()
-        .find_map(|e| {
-            if e.get("type")?.as_str()? == "response.completed" {
-                e.get("response")?.get("model")?.as_str()
-            } else {
-                None
-            }
-        })
-        .or_else(|| {
-            // 再回退：从 OpenAI 格式事件中提取
-            events.iter().find_map(|e| e.get("model")?.as_str())
-        })
-        .unwrap_or(request_model)
-        .to_string()
-}
-
-/// Gemini 流式响应模型提取（优先使用 usage.model）
-fn gemini_model_extractor(events: &[Value], request_model: &str) -> String {
-    // 首先尝试从解析的 usage 中获取模型
-    if let Some(usage) = TokenUsage::from_gemini_stream_chunks(events) {
-        if let Some(model) = usage.model {
-            return model;
-        }
-    }
-    request_model.to_string()
-}
-
 // ============================================================================
 // 预定义配置
 // ============================================================================
@@ -105,30 +52,6 @@ pub const CLAUDE_PARSER_CONFIG: UsageParserConfig = UsageParserConfig {
     response_parser: TokenUsage::from_claude_response,
     model_extractor: claude_model_extractor,
     app_type_str: "claude",
-};
-
-/// OpenAI Chat Completions API 解析配置（用于 Codex /v1/chat/completions）
-pub const OPENAI_PARSER_CONFIG: UsageParserConfig = UsageParserConfig {
-    stream_parser: TokenUsage::from_openai_stream_events,
-    response_parser: TokenUsage::from_openai_response,
-    model_extractor: openai_model_extractor,
-    app_type_str: "codex",
-};
-
-/// Codex 智能解析配置（自动检测 OpenAI 或 Codex 格式）
-pub const CODEX_PARSER_CONFIG: UsageParserConfig = UsageParserConfig {
-    stream_parser: TokenUsage::from_codex_stream_events_auto,
-    response_parser: TokenUsage::from_codex_response_auto,
-    model_extractor: codex_auto_model_extractor,
-    app_type_str: "codex",
-};
-
-/// Gemini API 解析配置
-pub const GEMINI_PARSER_CONFIG: UsageParserConfig = UsageParserConfig {
-    stream_parser: TokenUsage::from_gemini_stream_chunks,
-    response_parser: TokenUsage::from_gemini_response,
-    model_extractor: gemini_model_extractor,
-    app_type_str: "gemini",
 };
 
 // ============================================================================
@@ -158,31 +81,4 @@ pub const CLAUDE_HANDLER_CONFIG: HandlerConfig = HandlerConfig {
     tag: "Claude",
     app_type_str: "claude",
     parser_config: &CLAUDE_PARSER_CONFIG,
-};
-
-/// Codex Chat Completions Handler 配置
-#[allow(dead_code)]
-pub const CODEX_CHAT_HANDLER_CONFIG: HandlerConfig = HandlerConfig {
-    app_type: AppType::Codex,
-    tag: "Codex",
-    app_type_str: "codex",
-    parser_config: &OPENAI_PARSER_CONFIG,
-};
-
-/// Codex Responses Handler 配置
-#[allow(dead_code)]
-pub const CODEX_RESPONSES_HANDLER_CONFIG: HandlerConfig = HandlerConfig {
-    app_type: AppType::Codex,
-    tag: "Codex",
-    app_type_str: "codex",
-    parser_config: &CODEX_PARSER_CONFIG,
-};
-
-/// Gemini Handler 配置
-#[allow(dead_code)]
-pub const GEMINI_HANDLER_CONFIG: HandlerConfig = HandlerConfig {
-    app_type: AppType::Gemini,
-    tag: "Gemini",
-    app_type_str: "gemini",
-    parser_config: &GEMINI_PARSER_CONFIG,
 };

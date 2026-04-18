@@ -10,8 +10,6 @@ export interface StreamCheckConfig {
   maxRetries: number;
   degradedThresholdMs: number;
   claudeModel: string;
-  codexModel: string;
-  geminiModel: string;
   testPrompt: string;
 }
 

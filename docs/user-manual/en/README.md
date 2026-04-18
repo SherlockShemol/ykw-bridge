@@ -1,6 +1,6 @@
 # YKW Bridge User Manual
 
-> All-in-One Assistant for Claude Code / Codex / Gemini CLI / OpenCode / OpenClaw
+> Claude Code + Claude Desktop user manual
 
 ## Table of Contents
 
@@ -58,7 +58,7 @@ YKW Bridge User Manual
 
 | File | Description |
 |------|-------------|
-| [2.1-add.md](./2-providers/2.1-add.md) | Using presets, custom configuration, universal providers |
+| [2.1-add.md](./2-providers/2.1-add.md) | Using presets, custom configuration, managed auth |
 | [2.2-switch.md](./2-providers/2.2-switch.md) | Main UI switching, tray switching, activation methods |
 | [2.3-edit.md](./2-providers/2.3-edit.md) | Edit configuration, modify API Key, backfill mechanism |
 | [2.4-sort-duplicate.md](./2-providers/2.4-sort-duplicate.md) | Drag-to-reorder, duplicate provider, delete |
@@ -68,11 +68,11 @@ YKW Bridge User Manual
 
 | File | Description |
 |------|-------------|
-| [3.1-mcp.md](./3-extensions/3.1-mcp.md) | MCP protocol, add servers, app binding |
+| [3.1-mcp.md](./3-extensions/3.1-mcp.md) | MCP protocol, add servers, Claude sync |
 | [3.2-prompts.md](./3-extensions/3.2-prompts.md) | Create presets, activate/switch, smart backfill |
 | [3.3-skills.md](./3-extensions/3.3-skills.md) | Discover skills, install/uninstall, repository management |
 | [3.4-sessions.md](./3-extensions/3.4-sessions.md) | Session Manager: browse, search, resume, delete sessions |
-| [3.5-workspace.md](./3-extensions/3.5-workspace.md) | Workspace files and daily memory (OpenClaw) |
+| [3.5-workspace.md](./3-extensions/3.5-workspace.md) | Workspace files and daily memory tools |
 
 ### 4. Proxy & High Availability
 
@@ -110,12 +110,11 @@ YKW Bridge User Manual
 ### v3.13.0 Highlights
 
 - **Lightweight Mode**: Destroys the main window when minimizing to tray — near-zero idle footprint. See [1.5 Personalization](./1-getting-started/1.5-settings.md)
-- **Quota & Balance Display**: Official subscriptions (Claude/Codex/Gemini/Copilot/Codex OAuth) auto-display quotas; Token Plan and third-party balances use built-in templates with one-click enable — see [2.5 Usage Query](./2-providers/2.5-usage-query.md)
+- **Quota & Balance Display**: Official subscriptions (Claude/Copilot/Codex OAuth) auto-display quotas; Token Plan and third-party balances use built-in templates with one-click enable — see [2.5 Usage Query](./2-providers/2.5-usage-query.md)
 - **Codex OAuth Reverse Proxy**: Reuse your ChatGPT account's Codex service inside Claude Code — see [2.1 Add Provider](./2-providers/2.1-add.md)
-- **Per-App Tray Submenus**: Five independent app submenus to prevent tray overflow — see [2.2 Switch Provider](./2-providers/2.2-switch.md)
+- **Tray Quick Switching**: Fast Claude-side provider switching from the tray menu — see [2.2 Switch Provider](./2-providers/2.2-switch.md)
 - **Skills Discovery & Batch Updates**: SHA-256 update detection, batch updates, skills.sh public registry search — see [3.3 Skills Management](./3-extensions/3.3-skills.md)
 - **Full URL Endpoint Mode**: Advanced option to treat `base_url` as the full upstream endpoint — see [2.1 Add Provider](./2-providers/2.1-add.md)
-- **OpenCode / OpenClaw Stream Check Coverage**: Stream Check panel extended to all five apps — see [4.5 Model Test](./4-proxy/4.5-model-test.md)
 
 ## Contributing
 

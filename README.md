@@ -9,7 +9,7 @@
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 [![Downloads](https://img.shields.io/github/downloads/SherlockShemol/ykw-bridge/total)](https://github.com/SherlockShemol/ykw-bridge/releases/latest)
 
-English | [中文](README_ZH.md) | [日本語](README_JA.md) | [Changelog](CHANGELOG.md)
+English | [中文](README_ZH.md) | [日本語](README_JA.md) | [Releases](https://github.com/SherlockShemol/ykw-bridge/releases)
 
 </div>
 
@@ -50,7 +50,7 @@ Modern Claude workflows still mean juggling provider configs, proxy settings, MC
 
 ## Features
 
-[Full Changelog](CHANGELOG.md) | [Release Notes](docs/release-notes/v3.13.0-en.md)
+[GitHub Releases](https://github.com/SherlockShemol/ykw-bridge/releases)
 
 ### Provider Management
 
@@ -134,7 +134,7 @@ Add an official Claude provider from the preset list. After switching to it, run
 - **Database**: `~/.ykw-bridge/ykw-bridge.db` (SQLite — providers, MCP, prompts, skills)
 - **Local settings**: `~/.ykw-bridge/settings.json` (device-level UI preferences)
 - **Backups**: `~/.ykw-bridge/backups/` (auto-rotated, keeps 10 most recent)
-- **Skills**: `~/.ykw-bridge/skills/` (symlinked to corresponding apps by default)
+- **Skills**: `~/.ykw-bridge/skills/` (synced into Claude workflows by default)
 - **Skill Backups**: `~/.ykw-bridge/skill-backups/` (created automatically before uninstall, keeps 20 most recent)
 
 </details>
@@ -156,12 +156,12 @@ For detailed guides on every feature, check out the **[User Manual](docs/user-ma
 
 ### MCP, Prompts, Skills & Sessions
 
-- **MCP**: Click the "MCP" button → Add servers via templates or custom config → Toggle per-app sync
+- **MCP**: Click the "MCP" button → Add servers via templates or custom config → Sync to the Claude path
 - **Prompts**: Click "Prompts" → Create presets with Markdown editor → Activate to sync to live files
-- **Skills**: Click "Skills" → Browse GitHub repos → One-click install to all apps
-- **Sessions**: Click "Sessions" → Browse, search, and restore conversation history across all apps
+- **Skills**: Click "Skills" → Browse GitHub repos → One-click install into Claude workflows
+- **Sessions**: Click "Sessions" → Browse, search, and restore Claude conversation history
 
-> **Note**: On first launch, you can manually import existing CLI tool configs as the default provider.
+> **Note**: On first launch, you can manually import existing Claude configs as the default provider.
 
 ## Download & Installation
 

@@ -357,7 +357,7 @@ const DailyMemoryPanel: React.FC<DailyMemoryPanelProps> = ({
               onClick={() => workspaceApi.openDirectory("memory")}
               title={t("workspace.openDirectory")}
             >
-              ~/.openclaw/workspace/memory/
+              workspace/memory/
               <FolderOpen className="w-3.5 h-3.5" />
             </p>
             <div className="flex items-center gap-1.5">

@@ -10,7 +10,8 @@ interface AppSwitcherProps {
   compact?: boolean;
 }
 
-const ALL_APPS: AppId[] = ["claude", "codex", "gemini", "opencode", "openclaw"];
+const ALL_APPS = ["claude", "claude_desktop"] as const;
+type SwitchableApp = (typeof ALL_APPS)[number];
 const STORAGE_KEY = "ykw-bridge-last-app";
 
 export function AppSwitcher({
@@ -19,27 +20,19 @@ export function AppSwitcher({
   visibleApps,
   compact,
 }: AppSwitcherProps) {
-  const handleSwitch = (app: AppId) => {
+  const handleSwitch = (app: SwitchableApp) => {
     if (app === activeApp) return;
     localStorage.setItem(STORAGE_KEY, app);
     onSwitch(app);
   };
   const iconSize = 20;
-  const appIconName: Record<AppId, string> = {
+  const appIconName: Record<SwitchableApp, string> = {
     claude: "claude",
     claude_desktop: "claude",
-    codex: "openai",
-    gemini: "gemini",
-    opencode: "opencode",
-    openclaw: "openclaw",
   };
-  const appDisplayName: Record<AppId, string> = {
+  const appDisplayName: Record<SwitchableApp, string> = {
     claude: "Claude",
     claude_desktop: "Claude Desktop",
-    codex: "Codex",
-    gemini: "Gemini",
-    opencode: "OpenCode",
-    openclaw: "OpenClaw",
   };
 
   // Filter apps based on visibility settings (default all visible)

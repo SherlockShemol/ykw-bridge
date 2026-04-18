@@ -71,7 +71,6 @@ const createSettingsFormMock = (overrides: Record<string, unknown> = {}) => ({
     enableClaudePluginIntegration: false,
     skipClaudeOnboarding: true,
     claudeConfigDir: "/claude",
-    codexConfigDir: "/codex",
     language: "zh",
   },
   isLoading: false,
@@ -89,7 +88,6 @@ const createDirectorySettingsMock = (
   resolvedDirs: {
     appConfig: "/home/mock/.cc-switch",
     claude: "/default/claude",
-    codex: "/default/codex",
   },
   isLoading: false,
   initialAppConfigDir: undefined,
@@ -131,7 +129,6 @@ describe("useSettings hook", () => {
       enableClaudePluginIntegration: false,
       skipClaudeOnboarding: true,
       claudeConfigDir: "/server/claude",
-      codexConfigDir: "/server/codex",
       language: "zh",
     };
 
@@ -217,7 +214,6 @@ describe("useSettings hook", () => {
       ...serverSettings,
       enableClaudePluginIntegration: false,
       claudeConfigDir: "/server/claude",
-      codexConfigDir: undefined,
       language: "en",
     };
     useSettingsQueryMock.mockReturnValue({
@@ -229,7 +225,6 @@ describe("useSettings hook", () => {
       settings: {
         ...serverSettings,
         claudeConfigDir: "  /custom/claude  ",
-        codexConfigDir: "   ",
         language: "en",
         enableClaudePluginIntegration: true, // 状态从 false 变为 true
       },
@@ -252,7 +247,6 @@ describe("useSettings hook", () => {
     expect(mutateAsyncMock).toHaveBeenCalledTimes(1);
     const payload = mutateAsyncMock.mock.calls[0][0] as Settings;
     expect(payload.claudeConfigDir).toBe("/custom/claude");
-    expect(payload.codexConfigDir).toBeUndefined();
     expect(payload.language).toBe("en");
     expect(setAppConfigDirOverrideMock).toHaveBeenCalledWith("/override/app");
     // 状态改变，应该调用 API
@@ -350,7 +344,6 @@ describe("useSettings hook", () => {
     serverSettings = {
       ...serverSettings,
       claudeConfigDir: "  /server/claude  ",
-      codexConfigDir: "   ",
       language: "zh",
     };
     useSettingsQueryMock.mockReturnValue({
@@ -379,9 +372,6 @@ describe("useSettings hook", () => {
     );
     expect(directorySettingsMock.resetAllDirectories).toHaveBeenCalledWith(
       "/server/claude",
-      undefined,
-      undefined, // geminiConfigDir
-      undefined, // opencodeConfigDir
     );
     expect(metadataMock.setRequiresRestart).toHaveBeenCalledWith(false);
   });

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.ykwbridge.desktop</id>
+  <name>YKW Bridge</name>
+  <summary>All-in-One Assistant for Claude Workflows</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+
+  <description>
+    <p>YKW Bridge is a cross-platform desktop app for managing and switching provider configurations for Claude workflows.</p>
+    <ul>
+      <li>Manage multiple provider configurations and endpoints</li>
+      <li>One-click switch and sync to Claude live configurations</li>
+      <li>MCP servers and Prompt/Skills management</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">com.ykwbridge.desktop.desktop</launchable>
+  <provides>
+    <binary>cc-switch</binary>
+  </provides>
+
+  <url type="homepage">https://github.com/SherlockShemol/ykw-bridge</url>
+  <url type="bugtracker">https://github.com/SherlockShemol/ykw-bridge/issues</url>
+</component>

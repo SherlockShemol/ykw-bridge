@@ -19,7 +19,7 @@ pub struct CodexOAuthState(pub Arc<RwLock<CodexOAuthManager>>);
 /// - `account_id` 未指定时回退到 `CodexOAuthManager` 的默认账号
 /// - 没有任何账号时返回 `not_found`，前端 `SubscriptionQuotaView` 会静默不渲染
 /// - 复用 `services::subscription::query_codex_quota`，因此 wham/usage 端点协议
-///   与 Codex CLI 路径完全一致
+///   与当前订阅查询端点保持一致
 #[tauri::command(rename_all = "camelCase")]
 pub async fn get_codex_oauth_quota(
     account_id: Option<String>,

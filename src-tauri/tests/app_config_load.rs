@@ -104,6 +104,6 @@ fn load_valid_v2_config_succeeds() {
         .get_manager(&ykw_bridge_lib::AppType::Claude)
         .is_some());
     assert!(loaded
-        .get_manager(&ykw_bridge_lib::AppType::Codex)
+        .get_manager(&ykw_bridge_lib::AppType::ClaudeDesktop)
         .is_some());
 }

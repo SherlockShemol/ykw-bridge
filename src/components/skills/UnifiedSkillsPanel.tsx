@@ -732,10 +732,6 @@ const ImportSkillsDialog: React.FC<ImportSkillsDialogProps> = ({
         skill.directory,
         {
           claude: skill.foundIn.includes("claude"),
-          codex: false,
-          gemini: false,
-          opencode: false,
-          openclaw: false,
         },
       ]),
     ),
@@ -757,10 +753,6 @@ const ImportSkillsDialog: React.FC<ImportSkillsDialogProps> = ({
         directory,
         apps: selectedApps[directory] ?? {
           claude: false,
-          codex: false,
-          gemini: false,
-          opencode: false,
-          openclaw: false,
         },
       })),
     );
@@ -799,10 +791,6 @@ const ImportSkillsDialog: React.FC<ImportSkillsDialogProps> = ({
                       apps={
                         selectedApps[skill.directory] ?? {
                           claude: false,
-                          codex: false,
-                          gemini: false,
-                          opencode: false,
-                          openclaw: false,
                         }
                       }
                       onToggle={(app, enabled) => {
@@ -811,10 +799,6 @@ const ImportSkillsDialog: React.FC<ImportSkillsDialogProps> = ({
                           [skill.directory]: {
                             ...(prev[skill.directory] ?? {
                               claude: false,
-                              codex: false,
-                              gemini: false,
-                              opencode: false,
-                              openclaw: false,
                             }),
                             [app]: enabled,
                           },

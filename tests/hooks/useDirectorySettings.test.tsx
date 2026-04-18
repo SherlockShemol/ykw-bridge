@@ -47,7 +47,6 @@ const createSettings = (
   minimizeToTrayOnClose: true,
   enableClaudePluginIntegration: false,
   claudeConfigDir: "/claude/custom",
-  codexConfigDir: "/codex/custom",
   language: "zh",
   ...overrides,
 });
@@ -66,9 +65,7 @@ describe("useDirectorySettings", () => {
     getAppConfigDirOverrideMock.mockResolvedValue(null);
     getConfigDirMock.mockImplementation(async (app: string) => {
       if (app === "claude") return "/remote/claude";
-      if (app === "codex") return "/remote/codex";
-      if (app === "gemini") return "/remote/gemini";
-      return "/remote/opencode";
+      return "/remote/unknown";
     });
     selectConfigDirectoryMock.mockReset();
   });
@@ -86,9 +83,6 @@ describe("useDirectorySettings", () => {
     expect(result.current.resolvedDirs).toEqual({
       appConfig: "/override/app",
       claude: "/remote/claude",
-      codex: "/remote/codex",
-      gemini: "/remote/gemini",
-      opencode: "/remote/opencode",
     });
   });
 
@@ -124,12 +118,12 @@ describe("useDirectorySettings", () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     await act(async () => {
-      await result.current.browseDirectory("codex");
+      await result.current.browseDirectory("claude");
     });
 
-    expect(result.current.resolvedDirs.codex).toBe("/remote/codex");
+    expect(result.current.resolvedDirs.claude).toBe("/remote/claude");
     expect(onUpdateSettings).not.toHaveBeenCalledWith({
-      codexConfigDir: expect.anything(),
+      claudeConfigDir: expect.anything(),
     });
     expect(selectConfigDirectoryMock).toHaveBeenCalled();
 
@@ -137,7 +131,7 @@ describe("useDirectorySettings", () => {
     toastErrorMock.mockClear();
 
     await act(async () => {
-      await result.current.browseDirectory("codex");
+      await result.current.browseDirectory("claude");
     });
 
     expect(toastErrorMock).toHaveBeenCalled();
@@ -152,12 +146,12 @@ describe("useDirectorySettings", () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     await act(async () => {
-      await result.current.browseDirectory("codex");
+      await result.current.browseDirectory("claude");
     });
 
     expect(toastErrorMock).toHaveBeenCalled();
     expect(onUpdateSettings).not.toHaveBeenCalledWith({
-      codexConfigDir: expect.anything(),
+      claudeConfigDir: expect.anything(),
     });
   });
 
@@ -178,7 +172,7 @@ describe("useDirectorySettings", () => {
 
     expect(result.current.appConfigDir).toBe("/new/app");
     expect(selectConfigDirectoryMock).toHaveBeenCalledWith(
-      "/home/mock/.cc-switch",
+      "/home/mock/.ykw-bridge",
     );
   });
 
@@ -187,7 +181,6 @@ describe("useDirectorySettings", () => {
       useDirectorySettings({
         settings: createSettings({
           claudeConfigDir: "/custom/claude",
-          codexConfigDir: "/custom/codex",
         }),
         onUpdateSettings,
       }),
@@ -196,19 +189,14 @@ describe("useDirectorySettings", () => {
 
     await act(async () => {
       await result.current.resetDirectory("claude");
-      await result.current.resetDirectory("codex");
       await result.current.resetAppConfigDir();
     });
 
     expect(onUpdateSettings).toHaveBeenCalledWith({
       claudeConfigDir: undefined,
     });
-    expect(onUpdateSettings).toHaveBeenCalledWith({
-      codexConfigDir: undefined,
-    });
     expect(result.current.resolvedDirs.claude).toBe("/home/mock/.claude");
-    expect(result.current.resolvedDirs.codex).toBe("/home/mock/.codex");
-    expect(result.current.resolvedDirs.appConfig).toBe("/home/mock/.cc-switch");
+    expect(result.current.resolvedDirs.appConfig).toBe("/home/mock/.ykw-bridge");
   });
 
   it("resetAllDirectories applies provided resolved values", async () => {
@@ -218,17 +206,9 @@ describe("useDirectorySettings", () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     act(() => {
-      result.current.resetAllDirectories(
-        "/server/claude",
-        "/server/codex",
-        "/server/gemini",
-        "/server/opencode",
-      );
+      result.current.resetAllDirectories("/server/claude");
     });
 
     expect(result.current.resolvedDirs.claude).toBe("/server/claude");
-    expect(result.current.resolvedDirs.codex).toBe("/server/codex");
-    expect(result.current.resolvedDirs.gemini).toBe("/server/gemini");
-    expect(result.current.resolvedDirs.opencode).toBe("/server/opencode");
   });
 });
