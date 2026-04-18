@@ -973,9 +973,9 @@
     "dataSource": {
       "proxy": "路由",
       "session_log": "会话日志",
-      "codex_db": "Codex 数据库",
-      "codex_session": "Codex 会话日志",
-      "gemini_session": "Gemini 会话日志"
+      "codex_db": "历史数据库",
+      "codex_session": "历史会话日志",
+      "gemini_session": "历史会话日志"
     },
     "sessionSync": {
       "trigger": "同步会话日志",

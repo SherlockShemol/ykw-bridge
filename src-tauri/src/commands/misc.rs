@@ -1234,9 +1234,9 @@ mod tests {
     }
 
     #[test]
-    fn parse_terminal_provider_app_rejects_removed_apps() {
-        let err =
-            parse_terminal_provider_app("openclaw").expect_err("removed app should be rejected");
+    fn parse_terminal_provider_app_rejects_unsupported_non_claude_apps() {
+        let err = parse_terminal_provider_app("legacy_non_claude")
+            .expect_err("unsupported app should be rejected");
         assert!(
             err.contains("仅支持 claude 或 claude_desktop"),
             "unexpected error message: {err}"

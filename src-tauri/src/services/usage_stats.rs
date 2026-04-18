@@ -118,14 +118,15 @@ pub struct RequestLogDetail {
 }
 
 /// SQL fragment: resolve provider_name with fallback for session-based entries.
-/// Session logs use placeholder provider_ids (_session, _codex_session, _gemini_session)
-/// that don't exist in the providers table — this COALESCE gives them readable names.
+/// Legacy imported session logs may use placeholder provider_ids
+/// (_session, _codex_session, _gemini_session) that don't exist in the
+/// providers table — this COALESCE gives them readable names.
 fn provider_name_coalesce(log_alias: &str, provider_alias: &str) -> String {
     format!(
         "COALESCE({provider_alias}.name, CASE {log_alias}.provider_id \
          WHEN '_session' THEN 'Claude (Session)' \
-         WHEN '_codex_session' THEN 'Codex (Session)' \
-         WHEN '_gemini_session' THEN 'Gemini (Session)' \
+         WHEN '_codex_session' THEN 'Legacy Session' \
+         WHEN '_gemini_session' THEN 'Legacy Session' \
          ELSE {log_alias}.provider_id END)"
     )
 }

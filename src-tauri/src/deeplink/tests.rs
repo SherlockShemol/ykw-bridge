@@ -304,7 +304,7 @@ fn test_parse_mcp_apps() {
     assert_eq!(apps.enabled_apps(), vec![AppType::Claude]);
     assert!(!apps.is_empty());
 
-    let err = parse_mcp_apps("openclaw").unwrap_err();
+    let err = parse_mcp_apps("legacy_non_claude").unwrap_err();
     assert!(err.to_string().contains("only 'claude' is supported"));
 
     let err = parse_mcp_apps("invalid").unwrap_err();

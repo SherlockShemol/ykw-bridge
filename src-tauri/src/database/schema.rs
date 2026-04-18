@@ -901,7 +901,7 @@ impl Database {
     fn migrate_skills_table(conn: &Connection) -> Result<(), AppError> {
         // v3 结构（统一管理架构）已经是更高版本的 skills 表：
         // - 主键为 id
-        // - 包含 enabled_claude / enabled_codex / enabled_gemini 等列
+        // - 包含 Claude 与历史兼容启用列（如 enabled_codex / enabled_gemini）
         // 在这种情况下，不应再执行 v1 -> v2 的迁移逻辑，否则会因列不匹配而失败。
         if Self::has_column(conn, "skills", "enabled_claude")?
             || Self::has_column(conn, "skills", "id")?
@@ -935,7 +935,7 @@ impl Database {
         )
         .map_err(|e| AppError::Database(format!("创建新 skills 表失败: {e}")))?;
 
-        // 3. 迁移数据：解析 key 格式（如 "claude:my-skill" 或 "codex:foo"）
+        // 3. 迁移数据：解析 key 格式（如 "claude:my-skill" 或其他历史前缀）
         //    旧数据如果没有前缀，默认为 claude
         let mut stmt = conn
             .prepare("SELECT key, installed, installed_at FROM skills_old")
@@ -984,7 +984,7 @@ impl Database {
     /// v2 -> v3 迁移：Skills 统一管理架构
     ///
     /// 将 skills 表从 (directory, app_type) 复合主键结构迁移到统一的 id 主键结构，
-    /// 支持三应用启用标志（enabled_claude, enabled_codex, enabled_gemini）。
+    /// 支持 Claude 与历史兼容启用标志（enabled_claude, enabled_codex, enabled_gemini）。
     ///
     /// 迁移策略：
     /// 1. 旧数据库只存储安装记录，真正的 skill 文件在文件系统

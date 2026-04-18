@@ -729,8 +729,8 @@ fn schema_model_pricing_is_seeded_on_init() {
 
 #[test]
 fn claude_only_cleanup_prunes_non_claude_runtime_state() {
-    const LEGACY_REMOVED_APP_A: &str = "codex";
-    const LEGACY_REMOVED_APP_B: &str = "gemini";
+    const LEGACY_NON_CLAUDE_APP_A: &str = "codex";
+    const LEGACY_NON_CLAUDE_APP_B: &str = "gemini";
     const LEGACY_COMMON_CONFIG_KEY: &str = "common_config_codex";
 
     let db = Database::memory().expect("create memory db");
@@ -746,7 +746,7 @@ fn claude_only_cleanup_prunes_non_claude_runtime_state() {
     )
     .expect("seed claude provider");
     db.save_provider(
-        LEGACY_REMOVED_APP_A,
+        LEGACY_NON_CLAUDE_APP_A,
         &Provider::with_id(
             "legacy-provider-a".to_string(),
             "Legacy Provider A".to_string(),
@@ -754,9 +754,9 @@ fn claude_only_cleanup_prunes_non_claude_runtime_state() {
             None,
         ),
     )
-    .expect("seed removed app A provider");
+    .expect("seed legacy non-Claude app A provider");
     db.save_provider(
-        LEGACY_REMOVED_APP_B,
+        LEGACY_NON_CLAUDE_APP_B,
         &Provider::with_id(
             "legacy-provider-b".to_string(),
             "Legacy Provider B".to_string(),
@@ -764,12 +764,12 @@ fn claude_only_cleanup_prunes_non_claude_runtime_state() {
             None,
         ),
     )
-    .expect("seed removed app B provider");
+    .expect("seed legacy non-Claude app B provider");
 
     db.set_setting("universal_providers", r#"{"legacy":true}"#)
         .expect("seed universal providers");
     db.set_setting(LEGACY_COMMON_CONFIG_KEY, "{}")
-        .expect("seed removed app common config");
+        .expect("seed legacy non-Claude common config");
     db.set_setting("official_providers_seeded", "true")
         .expect("seed official flag");
 
@@ -782,9 +782,9 @@ fn claude_only_cleanup_prunes_non_claude_runtime_state() {
         .expect("insert claude prompt");
         conn.execute(
             "INSERT INTO prompts (id, app_type, name, content) VALUES (?1, ?2, ?3, ?4)",
-            params!["legacy-prompt", LEGACY_REMOVED_APP_A, "Legacy Prompt", "world"],
+            params!["legacy-prompt", LEGACY_NON_CLAUDE_APP_A, "Legacy Prompt", "world"],
         )
-        .expect("insert removed-app prompt");
+        .expect("insert legacy non-Claude prompt");
         conn.execute(
             "INSERT INTO mcp_servers (id, name, server_config, enabled_claude) VALUES (?1, ?2, ?3, 1)",
             params!["claude-mcp", "Claude MCP", "{}"],
@@ -794,7 +794,7 @@ fn claude_only_cleanup_prunes_non_claude_runtime_state() {
             "INSERT INTO mcp_servers (id, name, server_config, enabled_codex) VALUES (?1, ?2, ?3, 1)",
             params!["legacy-mcp", "Legacy MCP", "{}"],
         )
-        .expect("insert removed-app mcp");
+        .expect("insert legacy non-Claude mcp");
         conn.execute(
             "INSERT INTO skills (id, name, directory, enabled_claude, installed_at, updated_at) VALUES (?1, ?2, ?3, 1, 1, 1)",
             params!["claude-skill", "Claude Skill", "claude-skill"],
@@ -804,7 +804,7 @@ fn claude_only_cleanup_prunes_non_claude_runtime_state() {
             "INSERT INTO skills (id, name, directory, enabled_codex, installed_at, updated_at) VALUES (?1, ?2, ?3, 1, 1, 1)",
             params!["legacy-skill", "Legacy Skill", "legacy-skill"],
         )
-        .expect("insert removed-app skill");
+        .expect("insert legacy non-Claude skill");
         conn.execute(
             "INSERT INTO proxy_request_logs (request_id, provider_id, app_type, model, latency_ms, status_code, created_at)
              VALUES (?1, ?2, ?3, ?4, 1, 200, 1)",
@@ -814,9 +814,9 @@ fn claude_only_cleanup_prunes_non_claude_runtime_state() {
         conn.execute(
             "INSERT INTO proxy_request_logs (request_id, provider_id, app_type, model, latency_ms, status_code, created_at)
              VALUES (?1, ?2, ?3, ?4, 1, 200, 1)",
-            params!["legacy-log", "legacy-provider-a", LEGACY_REMOVED_APP_A, "gpt-5.4"],
+            params!["legacy-log", "legacy-provider-a", LEGACY_NON_CLAUDE_APP_A, "gpt-5.4"],
         )
-        .expect("insert removed-app log");
+        .expect("insert legacy non-Claude log");
     }
 
     let applied = db
@@ -832,16 +832,16 @@ fn claude_only_cleanup_prunes_non_claude_runtime_state() {
         "claude providers should be preserved"
     );
     assert!(
-        db.get_all_providers(LEGACY_REMOVED_APP_A)
-            .expect("list removed app A providers")
+        db.get_all_providers(LEGACY_NON_CLAUDE_APP_A)
+            .expect("list legacy non-Claude app A providers")
             .is_empty(),
-        "removed app A providers should be removed"
+        "legacy non-Claude app A providers should be removed"
     );
     assert!(
-        db.get_all_providers(LEGACY_REMOVED_APP_B)
-            .expect("list removed app B providers")
+        db.get_all_providers(LEGACY_NON_CLAUDE_APP_B)
+            .expect("list legacy non-Claude app B providers")
             .is_empty(),
-        "removed app B providers should be removed"
+        "legacy non-Claude app B providers should be removed"
     );
 
     let conn = db.conn.lock().expect("lock conn");
@@ -902,7 +902,7 @@ fn claude_only_cleanup_prunes_non_claude_runtime_state() {
             [],
             |r| r.get(0),
         )
-        .expect("count removed-app mcp");
+        .expect("count legacy non-Claude mcp");
     assert_eq!(
         removed_app_mcp, 0,
         "non-Claude MCP rows should be removed"
@@ -914,7 +914,7 @@ fn claude_only_cleanup_prunes_non_claude_runtime_state() {
             [],
             |r| r.get(0),
         )
-        .expect("count removed-app skill");
+        .expect("count legacy non-Claude skill");
     assert_eq!(
         removed_app_skill, 0,
         "non-Claude skills should be removed"

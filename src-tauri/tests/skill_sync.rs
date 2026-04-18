@@ -28,7 +28,7 @@ fn symlink_dir(src: &std::path::Path, dest: &std::path::Path) {
 }
 
 #[test]
-fn import_from_apps_filters_removed_app_flags() {
+fn import_from_apps_filters_legacy_non_claude_app_flags() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
     reset_test_fs();
     let home = ensure_test_home();
@@ -65,7 +65,7 @@ fn import_from_apps_filters_removed_app_flags() {
     );
     assert!(
         !skill.apps.codex && !skill.apps.gemini,
-        "import should strip removed app flags instead of persisting them"
+        "import should strip legacy non-Claude app flags instead of persisting them"
     );
 }
 
@@ -378,6 +378,6 @@ fn migration_snapshot_overrides_multi_source_directory_inference() {
     );
     assert!(
         !migrated.apps.codex,
-        "migration should no longer infer removed-app enablement from a duplicate directory alone"
+        "migration should no longer infer legacy non-Claude enablement from a duplicate directory alone"
     );
 }

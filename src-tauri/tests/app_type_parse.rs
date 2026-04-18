@@ -16,13 +16,12 @@ fn parse_known_apps_case_insensitive_and_trim() {
 }
 
 #[test]
-fn parse_removed_apps_returns_error() {
-    for app in ["openclaw"] {
-        let err = AppType::from_str(app).expect_err("removed app should be rejected");
-        let msg = err.to_string();
-        assert!(msg.contains("claude"));
-        assert!(msg.contains(app));
-    }
+fn parse_unsupported_non_claude_app_returns_error() {
+    let app = "legacy_non_claude";
+    let err = AppType::from_str(app).expect_err("unsupported app should be rejected");
+    let msg = err.to_string();
+    assert!(msg.contains("claude"));
+    assert!(msg.contains(app));
 }
 
 #[test]

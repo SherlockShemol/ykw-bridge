@@ -49,13 +49,13 @@ fn deeplink_import_claude_provider_persists_to_db() {
 }
 
 #[test]
-fn deeplink_import_rejects_removed_provider_app() {
+fn deeplink_import_rejects_unsupported_non_claude_provider_app() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
     reset_test_fs();
     let _home = ensure_test_home();
 
-    let url = "ykwbridge://v1/import?resource=provider&app=openclaw&name=DeepLink%20Removed&homepage=https%3A%2F%2Fexample.com&endpoint=https%3A%2F%2Fapi.example.com%2Fv1&apiKey=sk-test-removed-key&model=claude-sonnet-4&icon=anthropic";
-    let err = parse_deeplink_url(url).expect_err("removed app should be rejected");
+    let url = "ykwbridge://v1/import?resource=provider&app=legacy_non_claude&name=DeepLink%20Unsupported&homepage=https%3A%2F%2Fexample.com&endpoint=https%3A%2F%2Fapi.example.com%2Fv1&apiKey=sk-test-unsupported-key&model=claude-sonnet-4&icon=anthropic";
+    let err = parse_deeplink_url(url).expect_err("unsupported app should be rejected");
     let msg = err.to_string();
     assert!(
         msg.contains("only 'claude' is supported"),
