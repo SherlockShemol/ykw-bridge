@@ -600,6 +600,7 @@ pub fn get_claude_desktop_profile_dir() -> Option<PathBuf> {
         .map(|p| resolve_override_path(p))
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn claude_desktop_launch_watchdog_enabled() -> bool {
     settings_store()
         .read()

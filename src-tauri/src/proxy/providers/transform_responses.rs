@@ -194,24 +194,17 @@ pub(crate) fn map_responses_stop_reason(
     incomplete_reason: Option<&str>,
 ) -> Option<&'static str> {
     status.map(|s| match s {
-        "completed" => {
-            if has_tool_use {
-                "tool_use"
-            } else {
-                "end_turn"
-            }
-        }
-        "incomplete" => {
+        "completed" if has_tool_use => "tool_use",
+        "completed" => "end_turn",
+        "incomplete"
             if matches!(
                 incomplete_reason,
-                Some("max_output_tokens") | Some("max_tokens")
-            ) || incomplete_reason.is_none()
-            {
-                "max_tokens"
-            } else {
-                "end_turn"
-            }
+                None | Some("max_output_tokens") | Some("max_tokens")
+            ) =>
+        {
+            "max_tokens"
         }
+        "incomplete" => "end_turn",
         _ => "end_turn",
     })
 }

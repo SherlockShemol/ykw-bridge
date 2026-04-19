@@ -247,7 +247,8 @@ fn collapse_title_prompt_text(raw: &str) -> Option<String> {
 
 fn strip_title_prompt_wrapper_sections(raw: &str) -> String {
     let mut cleaned = raw.to_string();
-    for tag in ["system-reminder"] {
+    {
+        let tag = "system-reminder";
         cleaned = strip_tagged_prompt_sections(&cleaned, tag);
     }
     cleaned
@@ -258,10 +259,7 @@ fn strip_tagged_prompt_sections(raw: &str, tag: &str) -> String {
     let close = format!("</{tag}>");
     let mut cleaned = raw.to_string();
 
-    loop {
-        let Some(start) = cleaned.find(&open) else {
-            break;
-        };
+    while let Some(start) = cleaned.find(&open) {
         let search_start = start + open.len();
         let Some(relative_end) = cleaned[search_start..].find(&close) else {
             break;
@@ -966,6 +964,7 @@ async fn handle_claude_messages_for_app(
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::{
         build_official_session_title_prompt, extract_claude_desktop_model_ids,

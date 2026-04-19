@@ -1,3 +1,5 @@
+#![cfg_attr(not(target_os = "macos"), allow(dead_code, unused_imports))]
+
 use std::collections::{BTreeSet, HashMap};
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
@@ -1819,11 +1821,11 @@ pub fn loopback_host_for_listen_address(listen_address: &str) -> String {
 
 fn is_candidate_ipv4(addr: Ipv4Addr) -> bool {
     let octets = addr.octets();
-    !addr.is_loopback()
-        && !addr.is_link_local()
-        && !addr.is_unspecified()
-        && !addr.is_multicast()
-        && !(octets[0] == 198 && matches!(octets[1], 18 | 19))
+    !(addr.is_loopback()
+        || addr.is_link_local()
+        || addr.is_unspecified()
+        || addr.is_multicast()
+        || (octets[0] == 198 && matches!(octets[1], 18 | 19)))
 }
 
 #[cfg(not(test))]
@@ -2318,9 +2320,9 @@ pub fn certificate_installed() -> bool {
 pub fn install_certificate() -> Result<(), AppError> {
     #[cfg(not(target_os = "macos"))]
     {
-        return Err(AppError::Message(
+        Err(AppError::Message(
             "Claude Desktop experimental 目前仅支持 macOS".to_string(),
-        ));
+        ))
     }
 
     #[cfg(target_os = "macos")]
@@ -2409,9 +2411,9 @@ pub fn install_certificate() -> Result<(), AppError> {
 pub fn launch_app() -> Result<(), AppError> {
     #[cfg(not(target_os = "macos"))]
     {
-        return Err(AppError::Message(
+        Err(AppError::Message(
             "Claude Desktop experimental 目前仅支持 macOS".to_string(),
-        ));
+        ))
     }
 
     #[cfg(target_os = "macos")]

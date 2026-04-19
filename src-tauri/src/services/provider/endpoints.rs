@@ -2,6 +2,7 @@
 //!
 //! Handles CRUD operations for provider custom endpoints.
 
+use std::cmp::Reverse;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::app_config::AppType;
@@ -27,7 +28,7 @@ pub fn get_custom_endpoints(
     }
 
     let mut result: Vec<_> = meta.custom_endpoints.values().cloned().collect();
-    result.sort_by(|a, b| b.added_at.cmp(&a.added_at));
+    result.sort_by_key(|endpoint| Reverse(endpoint.added_at));
     Ok(result)
 }
 

@@ -5,6 +5,7 @@
 //!
 //! 字段与前端预设保持一致，参见：
 //! - `src/config/claudeProviderPresets.ts`（"Claude Official"）
+//!
 //! Claude 专版只保留 Claude 官方预设。
 
 use crate::app_config::AppType;
