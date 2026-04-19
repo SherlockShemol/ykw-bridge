@@ -58,7 +58,40 @@ fn deeplink_import_rejects_unsupported_non_claude_provider_app() {
     let err = parse_deeplink_url(url).expect_err("unsupported app should be rejected");
     let msg = err.to_string();
     assert!(
-        msg.contains("only 'claude' is supported"),
+        msg.contains("claude")
+            && msg.contains("claude_desktop")
+            && msg.contains("legacy_non_claude"),
         "unexpected error: {msg}"
     );
+}
+
+#[test]
+fn deeplink_import_accepts_claude_desktop_provider_app() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let _home = ensure_test_home();
+
+    let url = "ykwbridge://v1/import?resource=provider&app=claude_desktop&name=DeepLink%20Desktop&homepage=https%3A%2F%2Fexample.com&endpoint=https%3A%2F%2Fapi.example.com%2Fv1&apiKey=sk-test-claude-desktop-key&model=claude-sonnet-4&icon=claude";
+    let request = parse_deeplink_url(url).expect("parse deeplink url");
+
+    let db = Arc::new(Database::memory().expect("create memory db"));
+    let proxy_service = ProxyService::new(db.clone());
+    let state = AppState {
+        db: db.clone(),
+        proxy_service,
+    };
+
+    let provider_id = import_provider_from_deeplink(&state, request.clone())
+        .expect("import claude_desktop provider from deeplink");
+
+    let providers = db
+        .get_all_providers("claude_desktop")
+        .expect("get claude_desktop providers");
+    let provider = providers
+        .get(&provider_id)
+        .expect("claude_desktop provider created via deeplink");
+
+    assert_eq!(provider.name, request.name.clone().unwrap());
+    assert_eq!(provider.website_url.as_deref(), request.homepage.as_deref());
+    assert_eq!(provider.icon.as_deref(), Some("claude"));
 }

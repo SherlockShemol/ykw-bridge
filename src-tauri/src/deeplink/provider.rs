@@ -16,7 +16,7 @@ fn parse_provider_app(app: &str) -> Result<AppType, AppError> {
         "claude" => Ok(AppType::Claude),
         "claude_desktop" | "claudedesktop" | "claude-desktop" => Ok(AppType::ClaudeDesktop),
         other => Err(AppError::InvalidInput(format!(
-            "Deep link provider import only supports Claude apps, got '{other}'"
+            "Deep link provider import only supports 'claude' or 'claude_desktop', got '{other}'"
         ))),
     }
 }
@@ -347,7 +347,7 @@ pub fn parse_and_merge_config(
         }
         _ => {
             return Err(AppError::InvalidInput(format!(
-                "Deep link provider import only supports Claude apps, got {:?}",
+                "Deep link provider import only supports 'claude' or 'claude_desktop', got {:?}",
                 request.app.as_deref().unwrap_or("")
             )))
         }

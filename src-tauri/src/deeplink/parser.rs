@@ -84,7 +84,7 @@ fn parse_provider_deeplink(
         "claude" | "claude_desktop" | "claudedesktop" | "claude-desktop"
     ) {
         return Err(AppError::InvalidInput(format!(
-            "Invalid app type: only Claude apps are supported, got '{app}'"
+            "Invalid app type: only 'claude' or 'claude_desktop' are supported, got '{app}'"
         )));
     }
 
@@ -193,7 +193,7 @@ fn parse_prompt_deeplink(
         "claude" | "claude_desktop" | "claudedesktop" | "claude-desktop"
     ) {
         return Err(AppError::InvalidInput(format!(
-            "Invalid app type: only Claude apps are supported, got '{app}'"
+            "Invalid app type: only 'claude' or 'claude_desktop' are supported, got '{app}'"
         )));
     }
 

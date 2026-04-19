@@ -15,7 +15,7 @@ fn parse_prompt_app(app: &str) -> Result<AppType, AppError> {
         "claude" => Ok(AppType::Claude),
         "claude_desktop" | "claudedesktop" | "claude-desktop" => Ok(AppType::ClaudeDesktop),
         other => Err(AppError::InvalidInput(format!(
-            "Deep link prompt import only supports Claude apps, got '{other}'"
+            "Deep link prompt import only supports 'claude' or 'claude_desktop', got '{other}'"
         ))),
     }
 }
