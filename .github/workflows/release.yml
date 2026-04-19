@@ -51,7 +51,7 @@ jobs:
           import pathlib
           import re
 
-          text = pathlib.Path('src-tauri/Cargo.toml').read_text()
+          text = pathlib.Path('src-tauri/Cargo.toml').read_text(encoding='utf-8')
           match = re.search(r'^version\s*=\s*"([^"]+)"', text, re.MULTILINE)
           if not match:
               raise SystemExit('missing version in src-tauri/Cargo.toml')
