@@ -56,8 +56,8 @@ export const settingsApi = {
     return await invoke("restart_app");
   },
 
-  async checkUpdates(): Promise<void> {
-    await invoke("check_for_updates");
+  async openManualUpdatePage(): Promise<void> {
+    await invoke("open_manual_update_page");
   },
 
   async isPortable(): Promise<boolean> {

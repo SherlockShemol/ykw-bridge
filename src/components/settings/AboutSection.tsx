@@ -253,9 +253,12 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
     if (hasUpdate && updateHandle) {
       if (isPortable) {
         try {
-          await settingsApi.checkUpdates();
+          await settingsApi.openManualUpdatePage();
         } catch (error) {
-          console.error("[AboutSection] Portable update failed", error);
+          console.error(
+            "[AboutSection] Failed to open manual update page",
+            error,
+          );
         }
         return;
       }
@@ -269,10 +272,10 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
         console.error("[AboutSection] Update failed", error);
         toast.error(t("settings.updateFailed"));
         try {
-          await settingsApi.checkUpdates();
+          await settingsApi.openManualUpdatePage();
         } catch (fallbackError) {
           console.error(
-            "[AboutSection] Failed to open fallback updater",
+            "[AboutSection] Failed to open manual update page",
             fallbackError,
           );
         }

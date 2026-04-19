@@ -19,6 +19,9 @@ env:
 jobs:
   release:
     runs-on: ${{ matrix.os }}
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     strategy:
       matrix:
         include:
@@ -37,6 +40,29 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Validate release versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG_VERSION=$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")
+          TAURI_VERSION=$(node -p "JSON.parse(require('fs').readFileSync('src-tauri/tauri.conf.json', 'utf8')).version")
+          CARGO_VERSION=$(python3 - <<'PY'
+          import pathlib
+          import re
+
+          text = pathlib.Path('src-tauri/Cargo.toml').read_text()
+          match = re.search(r'^version\s*=\s*"([^"]+)"', text, re.MULTILINE)
+          if not match:
+              raise SystemExit('missing version in src-tauri/Cargo.toml')
+          print(match.group(1))
+          PY
+          )
+
+          [ "$PKG_VERSION" = "$TAG" ] || { echo "package.json version $PKG_VERSION != tag $TAG" >&2; exit 1; }
+          [ "$TAURI_VERSION" = "$TAG" ] || { echo "tauri.conf.json version $TAURI_VERSION != tag $TAG" >&2; exit 1; }
+          [ "$CARGO_VERSION" = "$TAG" ] || { echo "Cargo.toml version $CARGO_VERSION != tag $TAG" >&2; exit 1; }
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -51,7 +77,6 @@ jobs:
         run: |
           set -euxo pipefail
           sudo apt-get update
-          # Core build tools and pkg-config
           sudo apt-get install -y --no-install-recommends \
             build-essential \
             pkg-config \
@@ -65,15 +90,12 @@ jobs:
             flatpak-builder \
             elfutils \
             xdg-utils
-          # GTK/GLib stack for gdk-3.0, glib-2.0, gio-2.0
           sudo apt-get install -y --no-install-recommends \
             libgtk-3-dev \
             librsvg2-dev \
             libayatana-appindicator3-dev
-          # WebKit2GTK (version differs across Ubuntu images; try 4.1 then 4.0)
           sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev \
             || sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.0-dev
-          # libsoup also changed major version; prefer 3.0 with fallback to 2.4
           sudo apt-get install -y --no-install-recommends libsoup-3.0-dev \
             || sudo apt-get install -y --no-install-recommends libsoup2.4-dev
 
@@ -119,10 +141,12 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p release-assets
-          VERSION="${GITHUB_REF_NAME}"  # e.g., v3.5.0
+          VERSION="${GITHUB_REF_NAME}"
 
           APP_PATH=""
           DMG_PATH=""
+          UPDATER_PATH=""
+          UPDATER_SIG_PATH=""
           for path in \
             "src-tauri/target/universal-apple-darwin/release/bundle" \
             "src-tauri/target/aarch64-apple-darwin/release/bundle" \
@@ -131,26 +155,26 @@ jobs:
             if [ -d "$path" ]; then
               [ -z "$APP_PATH" ] && APP_PATH=$(find "$path" -name "*.app" -type d | head -1 || true)
               [ -z "$DMG_PATH" ] && DMG_PATH=$(find "$path" -name "*.dmg" -type f | head -1 || true)
+              [ -z "$UPDATER_PATH" ] && UPDATER_PATH=$(find "$path" -name "*.app.tar.gz" -type f | head -1 || true)
+              [ -z "$UPDATER_SIG_PATH" ] && UPDATER_SIG_PATH=$(find "$path" -name "*.app.tar.gz.sig" -type f | head -1 || true)
             fi
           done
 
-          if [ -z "$APP_PATH" ]; then
-            echo "❌ No .app found" >&2
-            exit 1
-          fi
+          [ -n "$APP_PATH" ] || { echo "No .app found" >&2; exit 1; }
+          [ -n "$UPDATER_PATH" ] || { echo "No macOS updater archive found" >&2; exit 1; }
+          [ -n "$UPDATER_SIG_PATH" ] || { echo "No macOS updater signature found" >&2; exit 1; }
 
-          # Collect .app as zip for unsigned direct download.
           NEW_ZIP="${RELEASE_ASSET_PREFIX}-${VERSION}-macOS.zip"
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "release-assets/$NEW_ZIP"
-          echo "macOS zip ready: $NEW_ZIP"
 
           if [ -n "$DMG_PATH" ]; then
             NEW_DMG="${RELEASE_ASSET_PREFIX}-${VERSION}-macOS.dmg"
             cp "$DMG_PATH" "release-assets/$NEW_DMG"
-            echo "macOS dmg ready: $NEW_DMG"
-          else
-            echo "No .dmg found under target bundle; shipping macOS zip only"
           fi
+
+          MACOS_UPDATER="${RELEASE_ASSET_PREFIX}-${VERSION}-macOS.app.tar.gz"
+          cp "$UPDATER_PATH" "release-assets/$MACOS_UPDATER"
+          cp "$UPDATER_SIG_PATH" "release-assets/$MACOS_UPDATER.sig"
 
       - name: Prepare Windows Assets
         if: runner.os == 'Windows'
@@ -158,21 +182,21 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force -Path release-assets | Out-Null
-          $VERSION = $env:GITHUB_REF_NAME  # e.g., v3.5.0
-          # 打包 MSI 安装器
-          $msi = Get-ChildItem -Path 'src-tauri/target/release/bundle/msi' -Recurse -Include *.msi -ErrorAction SilentlyContinue | Select-Object -First 1
+          $VERSION = $env:GITHUB_REF_NAME
+
+          $msi = Get-ChildItem -Path 'src-tauri/target/release/bundle' -Recurse -Include *.msi -ErrorAction SilentlyContinue | Select-Object -First 1
+          $msiSig = Get-ChildItem -Path 'src-tauri/target/release/bundle' -Recurse -Include *.msi.sig -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($null -eq $msi) {
-            # 兜底：全局搜索 .msi
-            $msi = Get-ChildItem -Path 'src-tauri/target/release/bundle' -Recurse -Include *.msi -ErrorAction SilentlyContinue | Select-Object -First 1
+            throw 'No Windows MSI installer found'
           }
-          if ($null -ne $msi) {
-            $dest = "${env:RELEASE_ASSET_PREFIX}-$VERSION-Windows.msi"
-            Copy-Item $msi.FullName (Join-Path release-assets $dest)
-            Write-Host "Installer copied: $dest"
-          } else {
-            Write-Warning 'No Windows MSI installer found'
+          if ($null -eq $msiSig) {
+            throw 'No Windows MSI updater signature found'
           }
-          # 绿色版（portable）：仅可执行文件打 zip
+
+          $dest = "${env:RELEASE_ASSET_PREFIX}-$VERSION-Windows.msi"
+          Copy-Item $msi.FullName (Join-Path release-assets $dest)
+          Copy-Item $msiSig.FullName (Join-Path release-assets "$dest.sig")
+
           $exeCandidates = @(
             'src-tauri/target/release/ykw-bridge.exe',
             'src-tauri/target/x86_64-pc-windows-msvc/release/ykw-bridge.exe'
@@ -191,9 +215,6 @@ jobs:
             $portableZip = "release-assets/${env:RELEASE_ASSET_PREFIX}-$VERSION-Windows-Portable.zip"
             Compress-Archive -Path "$portableDir/*" -DestinationPath $portableZip -Force
             Remove-Item -Recurse -Force $portableDir
-            Write-Host "Windows portable zip created: ${env:RELEASE_ASSET_PREFIX}-$VERSION-Windows-Portable.zip"
-          } else {
-            Write-Warning 'Portable exe not found'
           }
 
       - name: Prepare Linux Assets
@@ -202,32 +223,26 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p release-assets
-          VERSION="${GITHUB_REF_NAME}"  # e.g., v3.5.0
+          VERSION="${GITHUB_REF_NAME}"
           ARCH="${{ matrix.arch || 'x86_64' }}"
-          # AppImage for direct download.
+
           APPIMAGE=$(find src-tauri/target/release/bundle -name "*.AppImage" | head -1 || true)
-          if [ -n "$APPIMAGE" ]; then
-            NEW_APPIMAGE="${RELEASE_ASSET_PREFIX}-${VERSION}-Linux-${ARCH}.AppImage"
-            cp "$APPIMAGE" "release-assets/$NEW_APPIMAGE"
-            echo "AppImage copied: $NEW_APPIMAGE"
-          else
-            echo "No AppImage found under target/release/bundle" >&2
-          fi
-          # .deb for Debian/Ubuntu style installs.
+          APPIMAGE_SIG=$(find src-tauri/target/release/bundle -name "*.AppImage.sig" | head -1 || true)
+          [ -n "$APPIMAGE" ] || { echo "No AppImage found under target/release/bundle" >&2; exit 1; }
+          [ -n "$APPIMAGE_SIG" ] || { echo "No AppImage signature found under target/release/bundle" >&2; exit 1; }
+
+          NEW_APPIMAGE="${RELEASE_ASSET_PREFIX}-${VERSION}-Linux-${ARCH}.AppImage"
+          cp "$APPIMAGE" "release-assets/$NEW_APPIMAGE"
+          cp "$APPIMAGE_SIG" "release-assets/$NEW_APPIMAGE.sig"
+
           DEB=$(find src-tauri/target/release/bundle -name "*.deb" | head -1 || true)
           if [ -n "$DEB" ]; then
             cp "$DEB" "release-assets/${RELEASE_ASSET_PREFIX}-${VERSION}-Linux-${ARCH}.deb"
-            echo "Deb package copied: ${RELEASE_ASSET_PREFIX}-${VERSION}-Linux-${ARCH}.deb"
-          else
-            echo "No .deb found (optional)"
           fi
-          # .rpm for Fedora/RHEL/openSUSE style installs.
+
           RPM=$(find src-tauri/target/release/bundle -name "*.rpm" | head -1 || true)
           if [ -n "$RPM" ]; then
             cp "$RPM" "release-assets/${RELEASE_ASSET_PREFIX}-${VERSION}-Linux-${ARCH}.rpm"
-            echo "RPM package copied: ${RELEASE_ASSET_PREFIX}-${VERSION}-Linux-${ARCH}.rpm"
-          else
-            echo "No .rpm found (optional)"
           fi
 
       - name: List prepared assets
@@ -269,6 +284,57 @@ jobs:
           set -euo pipefail
           ls -la release-assets
 
+      - name: Generate updater manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import datetime
+          import json
+          import os
+          from pathlib import Path
+
+          assets_dir = Path('release-assets')
+          tag = os.environ['GITHUB_REF_NAME']
+          repo = os.environ['GITHUB_REPOSITORY']
+          prefix = os.environ['RELEASE_ASSET_PREFIX']
+          version = tag[1:] if tag.startswith('v') else tag
+
+          def add_platform(platforms, key, filename):
+              asset_path = assets_dir / filename
+              sig_path = assets_dir / f'{filename}.sig'
+              if asset_path.exists() and sig_path.exists():
+                  platforms[key] = {
+                      'url': f'https://github.com/{repo}/releases/download/{tag}/{filename}',
+                      'signature': sig_path.read_text().strip(),
+                  }
+
+          platforms = {}
+          add_platform(platforms, 'windows-x86_64', f'{prefix}-{tag}-Windows.msi')
+          add_platform(platforms, 'linux-x86_64', f'{prefix}-{tag}-Linux-x86_64.AppImage')
+          add_platform(platforms, 'linux-aarch64', f'{prefix}-{tag}-Linux-arm64.AppImage')
+
+          macos_filename = f'{prefix}-{tag}-macOS.app.tar.gz'
+          macos_asset = assets_dir / macos_filename
+          macos_sig = assets_dir / f'{macos_filename}.sig'
+          if macos_asset.exists() and macos_sig.exists():
+              signature = macos_sig.read_text().strip()
+              url = f'https://github.com/{repo}/releases/download/{tag}/{macos_filename}'
+              platforms['darwin-x86_64'] = {'url': url, 'signature': signature}
+              platforms['darwin-aarch64'] = {'url': url, 'signature': signature}
+
+          if not platforms:
+              raise SystemExit('no updater platforms found in release-assets')
+
+          manifest = {
+              'version': version,
+              'notes': f'{os.environ["APP_NAME"]} {tag}',
+              'pub_date': datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z'),
+              'platforms': platforms,
+          }
+          (assets_dir / 'latest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+          PY
+
       - name: Create or update GitHub Release
         shell: bash
         env:
@@ -289,13 +355,16 @@ jobs:
 
           ### 下载
 
-          - **macOS**: \`${RELEASE_ASSET_PREFIX}-${TAG}-macOS.dmg\`（若已生成）或 \`${RELEASE_ASSET_PREFIX}-${TAG}-macOS.zip\`
-          - **Windows**: \`${RELEASE_ASSET_PREFIX}-${TAG}-Windows.msi\`（安装版）或 \`${RELEASE_ASSET_PREFIX}-${TAG}-Windows-Portable.zip\`（绿色版）
-          - **Linux (x86_64)**: \`${RELEASE_ASSET_PREFIX}-${TAG}-Linux-x86_64.AppImage\` / \`.deb\` / \`.rpm\`
-          - **Linux (ARM64)**: \`${RELEASE_ASSET_PREFIX}-${TAG}-Linux-arm64.AppImage\` / \`.deb\` / \`.rpm\`
+          - **macOS**: \
 
-          ---
-          当前 GitHub Release 以可下载安装包为主，不依赖自动更新签名或 Apple 公证。
+            - 直接安装：\`${RELEASE_ASSET_PREFIX}-${TAG}-macOS.dmg\`（若已生成）或 \`${RELEASE_ASSET_PREFIX}-${TAG}-macOS.zip\`
+            - 自动更新：\`${RELEASE_ASSET_PREFIX}-${TAG}-macOS.app.tar.gz\` + `.sig`
+          - **Windows**:
+            - 安装版：\`${RELEASE_ASSET_PREFIX}-${TAG}-Windows.msi\` + `.sig`
+            - 绿色版：\`${RELEASE_ASSET_PREFIX}-${TAG}-Windows-Portable.zip\`
+          - **Linux (x86_64)**: \`${RELEASE_ASSET_PREFIX}-${TAG}-Linux-x86_64.AppImage\` + `.sig` / `.deb` / `.rpm`
+          - **Linux (ARM64)**: \`${RELEASE_ASSET_PREFIX}-${TAG}-Linux-arm64.AppImage\` + `.sig` / `.deb` / `.rpm`
+          - **Updater manifest**: \`latest.json\`
           EOF
 
           release_id="$(
@@ -305,17 +374,18 @@ jobs:
           )"
 
           if [ -n "${release_id}" ]; then
-            echo "Release for ${TAG} already exists (id=${release_id}), updating metadata"
-            gh release edit "${TAG}" \
-              --title "${TITLE}" \
-              --notes-file "${NOTES_FILE}" \
-              --prerelease
+            body="$(cat "$NOTES_FILE")"
+            gh api \
+              --method PATCH \
+              "/repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+              -f name="${TITLE}" \
+              -f body="${body}" \
+              -F draft=false \
+              -F prerelease=false >/dev/null
           else
-            echo "Creating release for ${TAG}"
             gh release create "${TAG}" \
               --title "${TITLE}" \
-              --notes-file "${NOTES_FILE}" \
-              --prerelease
+              --notes-file "${NOTES_FILE}"
           fi
 
           gh release upload "${TAG}" release-assets/* --clobber

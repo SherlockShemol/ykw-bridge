@@ -5,8 +5,6 @@ import { getVersion } from "@tauri-apps/api/app";
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports
 import type { Update } from "@tauri-apps/plugin-updater";
 
-export type UpdateChannel = "stable" | "beta";
-
 export type UpdaterPhase =
   | "idle"
   | "checking"
@@ -43,7 +41,6 @@ export interface UpdateHandle {
 
 export interface CheckOptions {
   timeout?: number;
-  channel?: UpdateChannel;
 }
 
 function mapUpdateHandle(raw: Update): UpdateHandle {

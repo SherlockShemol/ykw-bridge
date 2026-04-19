@@ -1,6 +1,6 @@
 {
   "name": "ykw-bridge",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Provider Manager for Claude Code & Claude Desktop",
   "type": "module",
   "scripts": {
