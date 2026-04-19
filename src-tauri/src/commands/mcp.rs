@@ -48,10 +48,11 @@ pub struct McpConfigResponse {
 }
 
 /// 获取 MCP 配置（来自 ~/.ykw-bridge/config.json）
-fn parse_mcp_app(app: &str) -> Result<AppType, String> {
+pub(crate) fn parse_mcp_app(app: &str) -> Result<AppType, String> {
     match app.trim().to_lowercase().as_str() {
         "claude" => Ok(AppType::Claude),
-        _ => Err(format!("MCP 仅支持 claude，收到: {app}")),
+        "claude_desktop" | "claudedesktop" | "claude-desktop" => Ok(AppType::ClaudeDesktop),
+        _ => Err(format!("MCP 仅支持 claude 或 claude_desktop，收到: {app}")),
     }
 }
 

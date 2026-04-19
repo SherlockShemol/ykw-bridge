@@ -19,26 +19,24 @@ impl McpApps {
     /// 检查指定应用是否启用
     ///
     /// 保留旧的非 Claude 字段仅用于兼容旧配置与数据库记录；
-    /// 运行时 MCP 现在只对 Claude 生效。
+    /// Claude 与 Claude Desktop 共享同一个管理开关。
     pub fn is_enabled_for(&self, app: &AppType) -> bool {
         match app {
-            AppType::Claude => self.claude,
-            AppType::ClaudeDesktop => false,
+            AppType::Claude | AppType::ClaudeDesktop => self.claude,
         }
     }
 
     /// 设置指定应用的启用状态
     pub fn set_enabled_for(&mut self, app: &AppType, enabled: bool) {
         match app {
-            AppType::Claude => self.claude = enabled,
-            AppType::ClaudeDesktop => {}
+            AppType::Claude | AppType::ClaudeDesktop => self.claude = enabled,
         }
     }
 
     /// 获取所有启用的应用列表
     pub fn enabled_apps(&self) -> Vec<AppType> {
         if self.claude {
-            vec![AppType::Claude]
+            vec![AppType::Claude, AppType::ClaudeDesktop]
         } else {
             Vec::new()
         }
@@ -65,26 +63,24 @@ impl SkillApps {
     /// 检查指定应用是否启用
     ///
     /// 保留旧的非 Claude 字段仅用于兼容旧配置与数据库记录；
-    /// 运行时 Skills 现在只对 Claude 生效。
+    /// Claude 与 Claude Desktop 共享同一个管理开关。
     pub fn is_enabled_for(&self, app: &AppType) -> bool {
         match app {
-            AppType::Claude => self.claude,
-            AppType::ClaudeDesktop => false,
+            AppType::Claude | AppType::ClaudeDesktop => self.claude,
         }
     }
 
     /// 设置指定应用的启用状态
     pub fn set_enabled_for(&mut self, app: &AppType, enabled: bool) {
         match app {
-            AppType::Claude => self.claude = enabled,
-            AppType::ClaudeDesktop => {}
+            AppType::Claude | AppType::ClaudeDesktop => self.claude = enabled,
         }
     }
 
     /// 获取所有启用的应用列表
     pub fn enabled_apps(&self) -> Vec<AppType> {
         if self.claude {
-            vec![AppType::Claude]
+            vec![AppType::Claude, AppType::ClaudeDesktop]
         } else {
             Vec::new()
         }
@@ -849,6 +845,42 @@ mod tests {
             fs::create_dir_all(parent).expect("create parent dir");
         }
         fs::write(path, content).expect("write prompt");
+    }
+
+    #[test]
+    fn mcp_apps_share_claude_flag_with_claude_desktop() {
+        let mut apps = McpApps::default();
+        apps.set_enabled_for(&AppType::ClaudeDesktop, true);
+
+        assert!(apps.is_enabled_for(&AppType::Claude));
+        assert!(apps.is_enabled_for(&AppType::ClaudeDesktop));
+        assert_eq!(
+            apps.enabled_apps(),
+            vec![AppType::Claude, AppType::ClaudeDesktop]
+        );
+        assert!(!apps.is_empty());
+    }
+
+    #[test]
+    fn skill_apps_share_claude_flag_with_claude_desktop() {
+        let mut apps = SkillApps::default();
+        apps.set_enabled_for(&AppType::ClaudeDesktop, true);
+
+        assert!(apps.is_enabled_for(&AppType::Claude));
+        assert!(apps.is_enabled_for(&AppType::ClaudeDesktop));
+        assert_eq!(
+            apps.enabled_apps(),
+            vec![AppType::Claude, AppType::ClaudeDesktop]
+        );
+        assert!(!apps.is_empty());
+
+        let only_desktop = SkillApps::only(&AppType::ClaudeDesktop);
+        assert!(only_desktop.is_enabled_for(&AppType::Claude));
+        assert!(only_desktop.is_enabled_for(&AppType::ClaudeDesktop));
+
+        let from_labels = SkillApps::from_labels(&["claude_desktop".to_string()]);
+        assert!(from_labels.is_enabled_for(&AppType::Claude));
+        assert!(from_labels.is_enabled_for(&AppType::ClaudeDesktop));
     }
 
     #[test]

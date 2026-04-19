@@ -12,6 +12,6 @@ mod validation;
 
 // 重新导出公共 API
 pub use claude::{
-    import_from_claude, remove_server_from_claude, sync_enabled_to_claude,
-    sync_single_server_to_claude,
+    import_from_claude, remove_server_from_app, remove_server_from_claude, sync_enabled_to_claude,
+    sync_single_server_to_app, sync_single_server_to_claude,
 };

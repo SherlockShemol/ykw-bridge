@@ -451,7 +451,7 @@ impl SkillService {
     }
 
     fn is_supported_app(app: &AppType) -> bool {
-        matches!(app, AppType::Claude)
+        matches!(app, AppType::Claude | AppType::ClaudeDesktop)
     }
 
     fn ensure_supported_app(app: &AppType) -> Result<()> {
@@ -599,7 +599,9 @@ impl SkillService {
                     let mut updated = existing.clone();
                     updated.apps.set_enabled_for(current_app, true);
                     db.save_skill(&updated)?;
-                    Self::sync_to_app_dir(&updated.directory, current_app)?;
+                    for app in updated.apps.enabled_apps() {
+                        Self::sync_to_app_dir(&updated.directory, &app)?;
+                    }
                     log::info!(
                         "Skill {} 已存在，更新 {:?} 启用状态",
                         updated.name,
@@ -776,8 +778,10 @@ impl SkillService {
         // 保存到数据库
         db.save_skill(&installed_skill)?;
 
-        // 同步到当前应用目录
-        Self::sync_to_app_dir(&install_name, current_app)?;
+        // 同步到所有启用的应用目录
+        for app in installed_skill.apps.enabled_apps() {
+            Self::sync_to_app_dir(&install_name, &app)?;
+        }
 
         log::info!(
             "Skill {} 安装成功，已启用 {:?}",
@@ -1345,10 +1349,12 @@ impl SkillService {
         }
 
         if !restored_skill.apps.is_empty() {
-            if let Err(err) = Self::sync_to_app_dir(&restored_skill.directory, current_app) {
-                let _ = db.delete_skill(&restored_skill.id);
-                let _ = fs::remove_dir_all(&restore_path);
-                return Err(err);
+            for app in restored_skill.apps.enabled_apps() {
+                if let Err(err) = Self::sync_to_app_dir(&restored_skill.directory, &app) {
+                    let _ = db.delete_skill(&restored_skill.id);
+                    let _ = fs::remove_dir_all(&restore_path);
+                    return Err(err);
+                }
             }
         }
 
@@ -1378,9 +1384,13 @@ impl SkillService {
 
         // 同步文件
         if enabled {
-            Self::sync_to_app_dir(&skill.directory, app)?;
+            for target_app in skill.apps.enabled_apps() {
+                Self::sync_to_app_dir(&skill.directory, &target_app)?;
+            }
         } else {
-            Self::remove_from_app(&skill.directory, app)?;
+            for target_app in AppType::all() {
+                Self::remove_from_app(&skill.directory, &target_app)?;
+            }
         }
 
         // 更新数据库
@@ -1403,7 +1413,7 @@ impl SkillService {
 
         // 收集所有待扫描的目录及其来源标签
         let mut scan_sources: Vec<(PathBuf, String)> = Vec::new();
-        for app in [AppType::Claude] {
+        for app in [AppType::Claude, AppType::ClaudeDesktop] {
             if let Ok(d) = Self::get_app_skills_dir(&app) {
                 scan_sources.push((d, app.as_str().to_string()));
             }
@@ -1474,7 +1484,7 @@ impl SkillService {
 
         // 收集所有候选搜索目录
         let mut search_sources: Vec<(PathBuf, String)> = Vec::new();
-        for app in [AppType::Claude] {
+        for app in [AppType::Claude, AppType::ClaudeDesktop] {
             if let Ok(d) = Self::get_app_skills_dir(&app) {
                 search_sources.push((d, app.as_str().to_string()));
             }
@@ -1554,6 +1564,9 @@ impl SkillService {
 
             // 保存到数据库
             db.save_skill(&skill)?;
+            for app in skill.apps.enabled_apps() {
+                Self::sync_to_app_dir(&skill.directory, &app)?;
+            }
             imported.push(skill);
         }
 

@@ -1,6 +1,6 @@
 //! Claude MCP 同步和导入模块
 
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::collections::HashMap;
 
 use crate::app_config::{McpApps, McpConfig, McpServer, MultiAppConfig};
@@ -110,37 +110,120 @@ pub fn import_from_claude(config: &mut MultiAppConfig) -> Result<usize, AppError
     Ok(changed)
 }
 
-/// 将单个 MCP 服务器同步到 Claude live 配置
-pub fn sync_single_server_to_claude(
+fn desktop_mcp_servers_map_from_config(config: &Value) -> HashMap<String, Value> {
+    config
+        .get("mcpServers")
+        .and_then(|v| v.as_object())
+        .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+        .unwrap_or_default()
+}
+
+fn sanitize_mcp_servers_map(
+    servers: &HashMap<String, Value>,
+) -> Result<Map<String, Value>, AppError> {
+    let mut out = Map::new();
+    for (id, spec) in servers {
+        let mut obj = if let Some(map) = spec.as_object() {
+            map.clone()
+        } else {
+            return Err(AppError::McpValidation(format!(
+                "MCP 服务器 '{id}' 不是对象"
+            )));
+        };
+
+        if let Some(server_val) = obj.remove("server") {
+            let server_obj = server_val.as_object().cloned().ok_or_else(|| {
+                AppError::McpValidation(format!("MCP 服务器 '{id}' server 字段不是对象"))
+            })?;
+            obj = server_obj;
+        }
+
+        obj.remove("enabled");
+        obj.remove("source");
+        obj.remove("id");
+        obj.remove("name");
+        obj.remove("description");
+        obj.remove("tags");
+        obj.remove("homepage");
+        obj.remove("docs");
+
+        out.insert(id.clone(), Value::Object(obj));
+    }
+
+    Ok(out)
+}
+
+pub fn read_mcp_servers_map_for_app(
+    app: &crate::app_config::AppType,
+) -> Result<HashMap<String, Value>, AppError> {
+    match app {
+        crate::app_config::AppType::Claude => crate::claude_mcp::read_mcp_servers_map(),
+        crate::app_config::AppType::ClaudeDesktop => {
+            let config = crate::claude_desktop_config::read_live_config()
+                .unwrap_or_else(|_| serde_json::json!({}));
+            Ok(desktop_mcp_servers_map_from_config(&config))
+        }
+    }
+}
+
+pub fn set_mcp_servers_map_for_app(
+    app: &crate::app_config::AppType,
+    servers: &HashMap<String, Value>,
+) -> Result<(), AppError> {
+    match app {
+        crate::app_config::AppType::Claude => crate::claude_mcp::set_mcp_servers_map(servers),
+        crate::app_config::AppType::ClaudeDesktop => {
+            let mut config = crate::claude_desktop_config::read_live_config()
+                .unwrap_or_else(|_| serde_json::json!({}));
+            let obj = config.as_object_mut().ok_or_else(|| {
+                AppError::Config("Claude Desktop live config root must be an object".into())
+            })?;
+            obj.insert(
+                "mcpServers".into(),
+                Value::Object(sanitize_mcp_servers_map(servers)?),
+            );
+            crate::claude_desktop_config::write_live_config(&config)
+        }
+    }
+}
+
+/// 将单个 MCP 服务器同步到指定应用的 live 配置
+pub fn sync_single_server_to_app(
     _config: &MultiAppConfig,
+    app: &crate::app_config::AppType,
     id: &str,
     server_spec: &Value,
 ) -> Result<(), AppError> {
-    if !should_sync_claude_mcp() {
+    if matches!(app, crate::app_config::AppType::Claude) && !should_sync_claude_mcp() {
         return Ok(());
     }
-    // 读取现有的 MCP 配置
-    let current = crate::claude_mcp::read_mcp_servers_map()?;
 
-    // 创建新的 HashMap，包含现有的所有服务器 + 当前要同步的服务器
-    let mut updated = current;
+    let mut updated = read_mcp_servers_map_for_app(app)?;
     updated.insert(id.to_string(), server_spec.clone());
+    set_mcp_servers_map_for_app(app, &updated)
+}
 
-    // 写回
-    crate::claude_mcp::set_mcp_servers_map(&updated)
+/// 从指定应用的 live 配置中移除单个 MCP 服务器
+pub fn remove_server_from_app(app: &crate::app_config::AppType, id: &str) -> Result<(), AppError> {
+    if matches!(app, crate::app_config::AppType::Claude) && !should_sync_claude_mcp() {
+        return Ok(());
+    }
+
+    let mut current = read_mcp_servers_map_for_app(app)?;
+    current.remove(id);
+    set_mcp_servers_map_for_app(app, &current)
+}
+
+/// 将单个 MCP 服务器同步到 Claude live 配置
+pub fn sync_single_server_to_claude(
+    config: &MultiAppConfig,
+    id: &str,
+    server_spec: &Value,
+) -> Result<(), AppError> {
+    sync_single_server_to_app(config, &crate::app_config::AppType::Claude, id, server_spec)
 }
 
 /// 从 Claude live 配置中移除单个 MCP 服务器
 pub fn remove_server_from_claude(id: &str) -> Result<(), AppError> {
-    if !should_sync_claude_mcp() {
-        return Ok(());
-    }
-    // 读取现有的 MCP 配置
-    let mut current = crate::claude_mcp::read_mcp_servers_map()?;
-
-    // 移除指定服务器
-    current.remove(id);
-
-    // 写回
-    crate::claude_mcp::set_mcp_servers_map(&current)
+    remove_server_from_app(&crate::app_config::AppType::Claude, id)
 }

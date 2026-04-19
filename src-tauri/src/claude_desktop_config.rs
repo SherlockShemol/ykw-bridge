@@ -1992,7 +1992,11 @@ fn preferred_gateway_host_for_candidates(
     listen_address: &str,
     detected_ipv4s: &[String],
 ) -> String {
-    if !is_wildcard_listen_address(listen_address) && !is_loopback_listen_address(listen_address) {
+    if is_loopback_listen_address(listen_address) {
+        return loopback_host_for_listen_address(listen_address);
+    }
+
+    if !is_wildcard_listen_address(listen_address) {
         return normalize_host(listen_address);
     }
 
@@ -2603,10 +2607,14 @@ mod tests {
     }
 
     #[test]
-    fn preferred_gateway_host_prefers_detected_non_loopback_ipv4_for_loopback_listeners() {
+    fn preferred_gateway_host_keeps_loopback_for_loopback_listeners() {
         assert_eq!(
             preferred_gateway_host_for_candidates("127.0.0.1", &["10.29.161.134".to_string()]),
-            "10.29.161.134"
+            "127.0.0.1"
+        );
+        assert_eq!(
+            preferred_gateway_host_for_candidates("::1", &["10.29.161.134".to_string()]),
+            "::1"
         );
         assert_eq!(
             preferred_gateway_host_for_candidates("0.0.0.0", &["10.29.161.134".to_string()]),

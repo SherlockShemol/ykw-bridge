@@ -159,11 +159,13 @@ pub(crate) fn parse_mcp_apps(apps_str: &str) -> Result<McpApps, AppError> {
     let mut apps = McpApps::default();
 
     for app in apps_str.split(',') {
-        match app.trim() {
-            "claude" => apps.claude = true,
+        match app.trim().to_lowercase().as_str() {
+            "claude" | "claude_desktop" | "claudedesktop" | "claude-desktop" => {
+                apps.claude = true
+            }
             other => {
                 return Err(AppError::InvalidInput(format!(
-                    "Invalid app in 'apps': only 'claude' is supported, got '{other}'"
+                    "Invalid app in 'apps': only 'claude' or 'claude_desktop' are supported, got '{other}'"
                 )))
             }
         }

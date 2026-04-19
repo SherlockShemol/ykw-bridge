@@ -259,10 +259,13 @@ fn parse_mcp_deeplink(
 
     // Validate apps format
     for app in apps.split(',') {
-        let trimmed = app.trim();
-        if trimmed != "claude" {
+        let trimmed = app.trim().to_lowercase();
+        if !matches!(
+            trimmed.as_str(),
+            "claude" | "claude_desktop" | "claudedesktop" | "claude-desktop"
+        ) {
             return Err(AppError::InvalidInput(format!(
-                "Invalid app in 'apps': only 'claude' is supported, got '{trimmed}'"
+                "Invalid app in 'apps': only 'claude' or 'claude_desktop' are supported, got '{app}'"
             )));
         }
     }

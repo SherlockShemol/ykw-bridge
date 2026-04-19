@@ -301,14 +301,97 @@ fn test_import_prompt_allows_space_in_base64_content() {
 #[test]
 fn test_parse_mcp_apps() {
     let apps = parse_mcp_apps("claude").unwrap();
-    assert_eq!(apps.enabled_apps(), vec![AppType::Claude]);
+    assert_eq!(
+        apps.enabled_apps(),
+        vec![AppType::Claude, AppType::ClaudeDesktop]
+    );
     assert!(!apps.is_empty());
 
+    let desktop_aliases = ["claude_desktop", "claudedesktop", "claude-desktop"];
+    for alias in desktop_aliases {
+        let apps = parse_mcp_apps(alias).unwrap();
+        assert!(apps.claude, "alias {alias} should normalize to claude flag");
+        assert_eq!(
+            apps.enabled_apps(),
+            vec![AppType::Claude, AppType::ClaudeDesktop]
+        );
+    }
+
     let err = parse_mcp_apps("legacy_non_claude").unwrap_err();
-    assert!(err.to_string().contains("only 'claude' is supported"));
+    assert!(err
+        .to_string()
+        .contains("only 'claude' or 'claude_desktop' are supported"));
 
     let err = parse_mcp_apps("invalid").unwrap_err();
     assert!(err.to_string().contains("Invalid app"));
+}
+
+#[test]
+fn test_parse_mcp_deeplink_accepts_claude_desktop_alias() {
+    let config = r#"{"mcpServers":{"test":{"command":"echo"}}}"#;
+    let config_b64 = BASE64_STANDARD.encode(config);
+    let url = format!(
+        "ykwbridge://v1/import?resource=mcp&apps=claude_desktop&config={}",
+        config_b64
+    );
+
+    let request = parse_deeplink_url(&url).unwrap();
+    assert_eq!(request.resource, "mcp");
+    assert_eq!(request.apps.unwrap(), "claude_desktop");
+}
+
+#[test]
+fn test_parse_mcp_multiple_aliases_normalize_to_shared_flag() {
+    let apps = parse_mcp_apps("claude,claude_desktop").unwrap();
+    assert!(apps.claude);
+    assert_eq!(
+        apps.enabled_apps(),
+        vec![AppType::Claude, AppType::ClaudeDesktop]
+    );
+}
+
+#[test]
+fn test_parse_mcp_app_desktop_alias_in_command_layer() {
+    assert_eq!(
+        crate::commands::parse_mcp_app("claude_desktop").unwrap(),
+        AppType::ClaudeDesktop
+    );
+}
+
+#[test]
+fn test_parse_mcp_app_desktop_hyphen_alias_in_command_layer() {
+    assert_eq!(
+        crate::commands::parse_mcp_app("claude-desktop").unwrap(),
+        AppType::ClaudeDesktop
+    );
+}
+
+#[test]
+fn test_parse_mcp_app_compact_alias_in_command_layer() {
+    assert_eq!(
+        crate::commands::parse_mcp_app("claudedesktop").unwrap(),
+        AppType::ClaudeDesktop
+    );
+}
+
+#[test]
+fn test_parse_mcp_app_invalid_in_command_layer() {
+    let err = crate::commands::parse_mcp_app("invalid").unwrap_err();
+    assert!(err.contains("claude 或 claude_desktop"));
+}
+
+#[test]
+fn test_parse_mcp_deeplink_parser_accepts_desktop_aliases() {
+    let config = r#"{"mcpServers":{"test":{"command":"echo"}}}"#;
+    let config_b64 = BASE64_STANDARD.encode(config);
+    for app in ["claude_desktop", "claudedesktop", "claude-desktop"] {
+        let url = format!(
+            "ykwbridge://v1/import?resource=mcp&apps={app}&config={}",
+            config_b64
+        );
+        let request = parse_deeplink_url(&url).unwrap();
+        assert_eq!(request.resource, "mcp");
+    }
 }
 
 #[test]

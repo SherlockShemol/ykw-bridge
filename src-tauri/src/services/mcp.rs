@@ -11,11 +11,11 @@ pub struct McpService;
 
 impl McpService {
     fn ensure_supported_app(app: &AppType) -> Result<(), AppError> {
-        if matches!(app, AppType::Claude) {
+        if matches!(app, AppType::Claude | AppType::ClaudeDesktop) {
             Ok(())
         } else {
             Err(AppError::InvalidInput(format!(
-                "MCP 仅支持 Claude，收到: {}",
+                "MCP 仅支持 Claude 系应用，收到: {}",
                 app.as_str()
             )))
         }
@@ -79,11 +79,12 @@ impl McpService {
             server.apps.set_enabled_for(&app, enabled);
             state.db.save_mcp_server(server)?;
 
-            // 同步到对应应用
             if enabled {
-                Self::sync_server_to_app(state, server, &app)?;
+                Self::sync_server_to_apps(state, server)?;
             } else {
-                Self::remove_server_from_app(state, server_id, &app)?;
+                for target_app in AppType::all() {
+                    Self::remove_server_from_app(state, server_id, &target_app)?;
+                }
             }
         }
 
@@ -109,15 +110,7 @@ impl McpService {
     }
 
     fn sync_server_to_app_no_config(server: &McpServer, app: &AppType) -> Result<(), AppError> {
-        match app {
-            AppType::Claude => {
-                mcp::sync_single_server_to_claude(&Default::default(), &server.id, &server.server)?;
-            }
-            AppType::ClaudeDesktop => {
-                log::debug!("Claude Desktop MCP support is not included in v1, skipping sync");
-            }
-        }
-        Ok(())
+        mcp::sync_single_server_to_app(&Default::default(), app, &server.id, &server.server)
     }
 
     /// 从所有曾启用过该服务器的应用中移除
@@ -134,13 +127,7 @@ impl McpService {
     }
 
     fn remove_server_from_app(_state: &AppState, id: &str, app: &AppType) -> Result<(), AppError> {
-        match app {
-            AppType::Claude => mcp::remove_server_from_claude(id)?,
-            AppType::ClaudeDesktop => {
-                log::debug!("Claude Desktop MCP support is not included in v1, skipping remove");
-            }
-        }
-        Ok(())
+        mcp::remove_server_from_app(app, id)
     }
 
     /// 手动同步所有启用的 MCP 服务器到对应的应用
