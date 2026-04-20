@@ -1,6 +1,6 @@
 #![cfg_attr(not(target_os = "macos"), allow(dead_code, unused_imports))]
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::net::IpAddr;
@@ -20,6 +20,9 @@ use crate::config::{get_app_config_dir, get_claude_config_dir, read_json_file, w
 use crate::error::AppError;
 use crate::provider::Provider;
 
+const LOCAL_SESSION_TITLE_SOURCE_AUTO: &str = "auto";
+const LOCAL_SESSION_TITLE_SOURCE_PROMPT: &str = "prompt";
+
 const DEFAULT_APP_PATH: &str = "/Applications/Claude.app";
 const APP_BUNDLE_BINARY_RELATIVE_PATH: &str = "Contents/MacOS/Claude";
 const CONFIG_FILENAME: &str = "claude_desktop_config.json";
@@ -28,32 +31,10 @@ const SERVER_CERT_FILENAME: &str = "server.pem";
 const SERVER_KEY_FILENAME: &str = "server-key.pem";
 const CERT_COMMON_NAME: &str = "YKW Bridge Claude Desktop Local Gateway";
 const LOCAL_SESSION_TITLE_MAX_CHARS: usize = 80;
-const LOCAL_SESSION_TITLE_SOURCE_AUTO: &str = "auto";
-const LOCAL_SESSION_TITLE_SOURCE_PROMPT: &str = "prompt";
-const LOCAL_SESSION_TITLE_RECENT_FALLBACK_MAX_AGE_MS: u64 = 5 * 60 * 1000;
 const LAUNCH_SHIM_MARKER: &str = "# ykw-bridge-claude-launch-shim";
 const LAUNCH_SHIM_BACKUP_SUFFIX: &str = ".ykw-bridge-original";
 const CLAUDE_CODE_SESSION_BUCKET_DIRNAME: &str = "00000000-0000-4000-8000-000000000001";
 const GIT_WORKTREES_FILENAME: &str = "git-worktrees.json";
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LocalSessionTitleLookupPreference {
-    CoworkFirst,
-}
-
-#[derive(Debug, Clone)]
-pub enum LocalSessionTitleLookup {
-    NotFound,
-    AlreadyTitled {
-        path: PathBuf,
-        kind: &'static str,
-    },
-    Pending {
-        path: PathBuf,
-        kind: &'static str,
-        description: Option<String>,
-    },
-}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -706,6 +687,30 @@ fn sync_claude_code_sessions_in_profile(
         write_json_file(&path, &doc)?;
     }
 
+    let refreshes = crate::session_links::build_code_refreshes(
+        profile_dir,
+        &bucket,
+        &sessions
+            .iter()
+            .map(|session| {
+                (
+                    session.cli_session_id.clone(),
+                    session.local_session_id.clone(),
+                    session.title.clone(),
+                    session.created_at,
+                    session.last_activity_at,
+                )
+            })
+            .collect::<Vec<_>>(),
+    )?;
+    crate::session_links::apply_code_refreshes(profile_dir, &refreshes)?;
+    for refresh in &refreshes {
+        crate::session_links::annotate_session_doc(
+            &bucket.join(format!("{}.json", refresh.local_session_id)),
+            &refresh.canonical_session_id,
+        )?;
+    }
+
     write_git_worktrees_index(profile_dir, &sessions)?;
     Ok(())
 }
@@ -715,36 +720,6 @@ pub fn sync_claude_code_sessions() -> Result<(), AppError> {
     let projects_dir =
         default_claude_projects_dir().unwrap_or_else(|| get_claude_config_dir().join("projects"));
     sync_claude_code_sessions_in_profile(&profile_dir, &projects_dir)
-}
-
-fn is_local_session_json(path: &Path) -> bool {
-    path.extension()
-        .and_then(|ext| ext.to_str())
-        .map(|ext| ext.eq_ignore_ascii_case("json"))
-        .unwrap_or(false)
-        && path
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .map(|stem| stem.starts_with("local_"))
-            .unwrap_or(false)
-}
-
-fn collect_local_session_json_paths(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), AppError> {
-    if !dir.exists() {
-        return Ok(());
-    }
-
-    for entry in fs::read_dir(dir).map_err(|e| AppError::io(dir, e))? {
-        let entry = entry.map_err(|e| AppError::io(dir, e))?;
-        let path = entry.path();
-        if path.is_dir() {
-            collect_local_session_json_paths(&path, out)?;
-        } else if is_local_session_json(&path) {
-            out.push(path);
-        }
-    }
-
-    Ok(())
 }
 
 fn truncate_local_session_title(text: &str) -> String {
@@ -806,7 +781,7 @@ fn derive_local_session_title(doc: &Value) -> Option<String> {
     derive_local_session_title_from_value(doc.get("initialMessage")?)
 }
 
-fn derive_local_session_description(doc: &Value) -> Option<String> {
+pub(crate) fn derive_local_session_description(doc: &Value) -> Option<String> {
     extract_local_session_text_from_value(doc.get("initialMessage")?)
 }
 
@@ -824,115 +799,11 @@ fn session_doc_title_source(doc: &Value) -> Option<&str> {
         .filter(|value| !value.is_empty())
 }
 
-fn session_doc_has_title_metadata(doc: &Value) -> (bool, bool) {
-    let has_title = session_doc_title(doc).is_some();
-    let has_title_source = session_doc_title_source(doc).is_some();
-    (has_title, has_title_source)
-}
-
-fn session_doc_id(doc: &Value, path: &Path) -> String {
-    doc.get("sessionId")
-        .and_then(Value::as_str)
-        .unwrap_or_else(|| {
-            path.file_stem()
-                .and_then(|stem| stem.to_str())
-                .unwrap_or("unknown-session")
-        })
-        .to_string()
-}
-
-fn session_doc_matches_request_session_id(
-    doc: &Value,
-    path: &Path,
-    request_session_id: &str,
-) -> bool {
-    let request_session_id = request_session_id.trim();
-    if request_session_id.is_empty() {
-        return false;
-    }
-
-    if session_doc_id(doc, path) == request_session_id {
-        return true;
-    }
-
-    doc.get("cliSessionId")
-        .and_then(Value::as_str)
-        .map(|value| value == request_session_id)
-        .unwrap_or(false)
-}
-
-fn session_lookup_from_doc(
-    path: PathBuf,
-    kind: &'static str,
-    doc: &Value,
-    description: Option<String>,
-) -> LocalSessionTitleLookup {
-    let (has_title, _) = session_doc_has_title_metadata(doc);
-    if has_title {
-        LocalSessionTitleLookup::AlreadyTitled { path, kind }
-    } else {
-        LocalSessionTitleLookup::Pending {
-            path,
-            kind,
-            description,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-struct RecentPendingSessionCandidate {
-    path: PathBuf,
-    kind: &'static str,
-    description: String,
-    activity_ms: u64,
-    preference_rank: u8,
-}
-
 fn current_unix_time_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis() as u64)
         .unwrap_or(0)
-}
-
-fn path_modified_at_ms(path: &Path) -> Option<u64> {
-    fs::metadata(path)
-        .ok()
-        .and_then(|metadata| metadata.modified().ok())
-        .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
-        .map(|duration| duration.as_millis() as u64)
-}
-
-fn session_doc_activity_ms(doc: &Value, path: &Path) -> Option<u64> {
-    doc.get("lastActivityAt")
-        .and_then(Value::as_u64)
-        .or_else(|| doc.get("createdAt").and_then(Value::as_u64))
-        .or_else(|| path_modified_at_ms(path))
-}
-
-fn recent_pending_session_candidate_from_doc(
-    path: PathBuf,
-    kind: &'static str,
-    doc: &Value,
-    description: Option<String>,
-    preference_rank: u8,
-) -> Option<RecentPendingSessionCandidate> {
-    if session_doc_title(doc).is_some() {
-        return None;
-    }
-
-    let description = description
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())?;
-    let activity_ms = session_doc_activity_ms(doc, &path)?;
-
-    Some(RecentPendingSessionCandidate {
-        path,
-        kind,
-        description,
-        activity_ms,
-        preference_rank,
-    })
 }
 
 fn write_title_metadata(
@@ -972,72 +843,9 @@ fn write_title_metadata(
     Ok(true)
 }
 
-fn lookup_cowork_session_title_target_in_profile(
-    profile_dir: &Path,
-    request_session_id: &str,
-    prompt: &str,
-) -> Result<LocalSessionTitleLookup, AppError> {
-    let mut session_paths = Vec::new();
-    collect_local_session_json_paths(&local_agent_sessions_dir(profile_dir), &mut session_paths)?;
-
-    let prompt = prompt.trim();
-
-    for path in session_paths {
-        let doc = match read_json_file::<Value>(&path) {
-            Ok(value) => value,
-            Err(err) => {
-                log::debug!(
-                    "跳过无法读取的 Claude Desktop Cowork 会话文件 {}: {}",
-                    path.display(),
-                    err
-                );
-                continue;
-            }
-        };
-
-        let description = derive_local_session_description(&doc);
-        let matches_session =
-            session_doc_matches_request_session_id(&doc, &path, request_session_id);
-        let matches_prompt = !prompt.is_empty() && description.as_deref() == Some(prompt);
-        if !matches_session && !matches_prompt {
-            continue;
-        }
-
-        return Ok(session_lookup_from_doc(path, "cowork", &doc, description));
-    }
-
-    Ok(LocalSessionTitleLookup::NotFound)
-}
-
-fn collect_claude_project_transcript_index(
-    dir: &Path,
-    out: &mut HashMap<String, PathBuf>,
-) -> Result<(), AppError> {
-    if !dir.exists() {
-        return Ok(());
-    }
-
-    for entry in fs::read_dir(dir).map_err(|e| AppError::io(dir, e))? {
-        let entry = entry.map_err(|e| AppError::io(dir, e))?;
-        let path = entry.path();
-        if path.is_dir() {
-            collect_claude_project_transcript_index(&path, out)?;
-        } else if path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| ext.eq_ignore_ascii_case("jsonl"))
-            .unwrap_or(false)
-        {
-            if let Some(file_name) = path.file_name().and_then(|name| name.to_str()) {
-                out.entry(file_name.to_string()).or_insert(path);
-            }
-        }
-    }
-
-    Ok(())
-}
-
-fn derive_claude_code_description_from_transcript(path: &Path) -> Result<Option<String>, AppError> {
+pub(crate) fn derive_claude_code_description_from_transcript(
+    path: &Path,
+) -> Result<Option<String>, AppError> {
     let file = fs::File::open(path).map_err(|e| AppError::io(path, e))?;
     let reader = BufReader::new(file);
     let mut fallback = None;
@@ -1083,229 +891,6 @@ fn derive_claude_code_description_from_transcript(path: &Path) -> Result<Option<
     }
 
     Ok(fallback)
-}
-
-fn derive_claude_code_session_description(
-    doc: &Value,
-    transcript_index: &HashMap<String, PathBuf>,
-) -> Result<Option<String>, AppError> {
-    if let Some(description) = derive_local_session_description(doc) {
-        return Ok(Some(description));
-    }
-
-    let Some(cli_session_id) = doc.get("cliSessionId").and_then(Value::as_str) else {
-        return Ok(None);
-    };
-    let transcript_name = format!("{cli_session_id}.jsonl");
-    let Some(transcript_path) = transcript_index.get(&transcript_name) else {
-        return Ok(None);
-    };
-
-    derive_claude_code_description_from_transcript(transcript_path)
-}
-
-fn lookup_claude_code_session_title_target_in_profile(
-    profile_dir: &Path,
-    projects_dir: &Path,
-    request_session_id: &str,
-    prompt: &str,
-) -> Result<LocalSessionTitleLookup, AppError> {
-    let mut session_paths = Vec::new();
-    collect_local_session_json_paths(&claude_code_sessions_dir(profile_dir), &mut session_paths)?;
-    if session_paths.is_empty() {
-        return Ok(LocalSessionTitleLookup::NotFound);
-    }
-
-    let prompt = prompt.trim();
-    let mut matched_session = None;
-    let mut docs = Vec::new();
-
-    for path in session_paths {
-        let doc = match read_json_file::<Value>(&path) {
-            Ok(value) => value,
-            Err(err) => {
-                log::debug!(
-                    "跳过无法读取的 Claude Desktop Code 会话文件 {}: {}",
-                    path.display(),
-                    err
-                );
-                continue;
-            }
-        };
-
-        let description = derive_local_session_description(&doc);
-        let matches_session =
-            session_doc_matches_request_session_id(&doc, &path, request_session_id);
-        if matches_session && (session_doc_title(&doc).is_some() || description.is_some()) {
-            return Ok(session_lookup_from_doc(path, "code", &doc, description));
-        }
-
-        if !prompt.is_empty() && description.as_deref() == Some(prompt) {
-            return Ok(session_lookup_from_doc(path, "code", &doc, description));
-        }
-
-        if matches_session && matched_session.is_none() {
-            matched_session = Some((path.clone(), doc.clone(), description.clone()));
-        }
-
-        docs.push((path, doc, description));
-    }
-
-    if prompt.is_empty() && matched_session.is_none() {
-        return Ok(LocalSessionTitleLookup::NotFound);
-    }
-
-    let mut transcript_index = HashMap::new();
-    collect_claude_project_transcript_index(projects_dir, &mut transcript_index)?;
-    if !transcript_index.is_empty() {
-        if let Some((path, doc, description)) = matched_session.take() {
-            let description = if description.is_some() {
-                description
-            } else {
-                derive_claude_code_session_description(&doc, &transcript_index)?
-            };
-            if description.is_some() {
-                return Ok(session_lookup_from_doc(path, "code", &doc, description));
-            }
-            matched_session = Some((path, doc, description));
-        }
-
-        for (path, doc, description) in docs {
-            let description = if description.is_some() {
-                description
-            } else {
-                derive_claude_code_session_description(&doc, &transcript_index)?
-            };
-            if !prompt.is_empty() && description.as_deref() == Some(prompt) {
-                return Ok(session_lookup_from_doc(path, "code", &doc, description));
-            }
-        }
-    }
-
-    if let Some((path, doc, description)) = matched_session {
-        return Ok(session_lookup_from_doc(path, "code", &doc, description));
-    }
-
-    Ok(LocalSessionTitleLookup::NotFound)
-}
-
-fn lookup_recent_local_session_title_target(
-    profile_dir: &Path,
-    projects_dir: Option<&Path>,
-    preference: LocalSessionTitleLookupPreference,
-) -> Result<LocalSessionTitleLookup, AppError> {
-    let now_ms = current_unix_time_ms();
-    let cutoff_ms = now_ms.saturating_sub(LOCAL_SESSION_TITLE_RECENT_FALLBACK_MAX_AGE_MS);
-    let _ = preference;
-    let (cowork_rank, code_rank) = (0, 1);
-    let mut candidates = Vec::new();
-
-    let mut cowork_paths = Vec::new();
-    collect_local_session_json_paths(&local_agent_sessions_dir(profile_dir), &mut cowork_paths)?;
-    for path in cowork_paths {
-        let doc = match read_json_file::<Value>(&path) {
-            Ok(value) => value,
-            Err(_) => continue,
-        };
-        let Some(candidate) = recent_pending_session_candidate_from_doc(
-            path,
-            "cowork",
-            &doc,
-            derive_local_session_description(&doc),
-            cowork_rank,
-        ) else {
-            continue;
-        };
-        if candidate.activity_ms >= cutoff_ms {
-            candidates.push(candidate);
-        }
-    }
-
-    if let Some(projects_dir) = projects_dir {
-        let mut code_paths = Vec::new();
-        collect_local_session_json_paths(&claude_code_sessions_dir(profile_dir), &mut code_paths)?;
-        let mut transcript_index = HashMap::new();
-        collect_claude_project_transcript_index(projects_dir, &mut transcript_index)?;
-
-        for path in code_paths {
-            let doc = match read_json_file::<Value>(&path) {
-                Ok(value) => value,
-                Err(_) => continue,
-            };
-            let description = if transcript_index.is_empty() {
-                derive_local_session_description(&doc)
-            } else {
-                derive_claude_code_session_description(&doc, &transcript_index)?
-            };
-            let Some(candidate) = recent_pending_session_candidate_from_doc(
-                path,
-                "code",
-                &doc,
-                description,
-                code_rank,
-            ) else {
-                continue;
-            };
-            if candidate.activity_ms >= cutoff_ms {
-                candidates.push(candidate);
-            }
-        }
-    }
-
-    candidates.sort_by(|left, right| {
-        right
-            .activity_ms
-            .cmp(&left.activity_ms)
-            .then_with(|| left.preference_rank.cmp(&right.preference_rank))
-    });
-
-    let Some(candidate) = candidates.into_iter().next() else {
-        return Ok(LocalSessionTitleLookup::NotFound);
-    };
-
-    Ok(LocalSessionTitleLookup::Pending {
-        path: candidate.path,
-        kind: candidate.kind,
-        description: Some(candidate.description),
-    })
-}
-
-pub fn lookup_local_session_title_target(
-    request_session_id: &str,
-    prompt: &str,
-    preference: LocalSessionTitleLookupPreference,
-) -> Result<LocalSessionTitleLookup, AppError> {
-    let profile_dir = resolve_profile_dir();
-    let projects_dir = default_claude_projects_dir();
-
-    let lookup_code = || -> Result<LocalSessionTitleLookup, AppError> {
-        let Some(projects_dir) = projects_dir.as_deref() else {
-            return Ok(LocalSessionTitleLookup::NotFound);
-        };
-        lookup_claude_code_session_title_target_in_profile(
-            &profile_dir,
-            projects_dir,
-            request_session_id,
-            prompt,
-        )
-    };
-
-    let lookup_cowork = || -> Result<LocalSessionTitleLookup, AppError> {
-        lookup_cowork_session_title_target_in_profile(&profile_dir, request_session_id, prompt)
-    };
-
-    let direct = match preference {
-        LocalSessionTitleLookupPreference::CoworkFirst => match lookup_cowork()? {
-            LocalSessionTitleLookup::NotFound => lookup_code()?,
-            found => found,
-        },
-    };
-
-    if !matches!(direct, LocalSessionTitleLookup::NotFound) {
-        return Ok(direct);
-    }
-
-    lookup_recent_local_session_title_target(&profile_dir, projects_dir.as_deref(), preference)
 }
 
 pub fn persist_prompt_session_title(path: &Path, prompt: &str) -> Result<bool, AppError> {
@@ -1988,6 +1573,7 @@ fn detect_primary_non_loopback_ipv4() -> Option<String> {
     detected_non_loopback_ipv4s().into_iter().next()
 }
 
+#[allow(dead_code)]
 fn preferred_gateway_host_for_candidates(
     listen_address: &str,
     detected_ipv4s: &[String],
@@ -2006,6 +1592,44 @@ fn preferred_gateway_host_for_candidates(
         .unwrap_or_else(|| loopback_host_for_listen_address(listen_address))
 }
 
+fn preferred_desktop_gateway_host_for_candidates(
+    listen_address: &str,
+    detected_ipv4s: &[String],
+) -> String {
+    if is_loopback_listen_address(listen_address) {
+        return detected_ipv4s
+            .first()
+            .cloned()
+            .unwrap_or_else(|| loopback_host_for_listen_address(listen_address));
+    }
+
+    if !is_wildcard_listen_address(listen_address) {
+        return normalize_host(listen_address);
+    }
+
+    detected_ipv4s
+        .first()
+        .cloned()
+        .unwrap_or_else(|| loopback_host_for_listen_address(listen_address))
+}
+
+pub fn preferred_desktop_gateway_host(listen_address: &str) -> String {
+    #[cfg(test)]
+    {
+        preferred_desktop_gateway_host_for_candidates(listen_address, &[])
+    }
+
+    #[cfg(not(test))]
+    {
+        if let Some(ip) = detect_primary_non_loopback_ipv4() {
+            return preferred_desktop_gateway_host_for_candidates(listen_address, &[ip]);
+        }
+
+        preferred_desktop_gateway_host_for_candidates(listen_address, &[])
+    }
+}
+
+#[allow(dead_code)]
 pub fn preferred_gateway_host(listen_address: &str) -> String {
     #[cfg(test)]
     {
@@ -2062,8 +1686,13 @@ fn gateway_health_url_for_host(host: &str, proxy_port: u16) -> String {
     )
 }
 
+#[allow(dead_code)]
 pub fn gateway_base_url(listen_address: &str, proxy_port: u16) -> String {
     gateway_base_url_for_host(&preferred_gateway_host(listen_address), proxy_port)
+}
+
+pub fn desktop_gateway_base_url(listen_address: &str, proxy_port: u16) -> String {
+    gateway_base_url_for_host(&preferred_desktop_gateway_host(listen_address), proxy_port)
 }
 
 fn local_gateway_health_host_for_bind_address(bind_address: &str) -> String {
@@ -2101,7 +1730,7 @@ fn https_listener_bind_address_for_host(listen_address: &str, gateway_host: &str
 }
 
 pub fn https_listener_bind_address(listen_address: &str) -> String {
-    let gateway_host = preferred_gateway_host(listen_address);
+    let gateway_host = preferred_desktop_gateway_host(listen_address);
     https_listener_bind_address_for_host(listen_address, &gateway_host)
 }
 
@@ -2212,6 +1841,19 @@ pub fn build_live_config(
     })
 }
 
+pub fn build_provider_live_config(
+    provider: &Provider,
+    listen_address: &str,
+    proxy_port: u16,
+    gateway_secret: &str,
+) -> Value {
+    build_live_config(
+        provider,
+        &desktop_gateway_base_url(listen_address, proxy_port),
+        gateway_secret,
+    )
+}
+
 pub fn read_live_config() -> Result<Value, AppError> {
     let path = resolve_config_path();
     read_json_file(&path)
@@ -2228,11 +1870,7 @@ pub fn write_provider_live_config(
     proxy_port: u16,
     gateway_secret: &str,
 ) -> Result<Value, AppError> {
-    let config = build_live_config(
-        provider,
-        &gateway_base_url(listen_address, proxy_port),
-        gateway_secret,
-    );
+    let config = build_provider_live_config(provider, listen_address, proxy_port, gateway_secret);
     write_live_config(&config)?;
     Ok(config)
 }
@@ -2476,7 +2114,7 @@ pub async fn build_status(
         certificate_installed: certificate_installed(),
         certificate_path: cert_path.to_string_lossy().to_string(),
         key_path: key_path.to_string_lossy().to_string(),
-        gateway_base_url: Some(gateway_base_url(listen_address, proxy_port)),
+        gateway_base_url: Some(desktop_gateway_base_url(listen_address, proxy_port)),
         managed_config_exists: has_managed_live_config(),
         launch_shim_installed: is_launch_shim_installed(),
         launch_shim_recovery_available: launch_shim_recovery_available_for(&binary_path),
@@ -2627,6 +2265,35 @@ mod tests {
     }
 
     #[test]
+    fn preferred_desktop_gateway_host_prefers_lan_for_loopback_listeners() {
+        assert_eq!(
+            preferred_desktop_gateway_host_for_candidates(
+                "127.0.0.1",
+                &["10.29.161.134".to_string()]
+            ),
+            "10.29.161.134"
+        );
+        assert_eq!(
+            preferred_desktop_gateway_host_for_candidates("127.0.0.1", &[]),
+            "127.0.0.1"
+        );
+        assert_eq!(
+            preferred_desktop_gateway_host_for_candidates(
+                "0.0.0.0",
+                &["10.29.161.134".to_string()]
+            ),
+            "10.29.161.134"
+        );
+        assert_eq!(
+            preferred_desktop_gateway_host_for_candidates(
+                "192.168.1.20",
+                &["10.29.161.134".to_string()]
+            ),
+            "192.168.1.20"
+        );
+    }
+
+    #[test]
     fn https_listener_bind_address_expands_loopback_when_gateway_uses_lan_ip() {
         assert_eq!(
             https_listener_bind_address_for_host("127.0.0.1", "10.29.161.134"),
@@ -2761,6 +2428,32 @@ lo0: flags=8049<UP,LOOPBACK,RUNNING,MULTICAST> mtu 16384
     }
 
     #[test]
+    fn build_provider_live_config_uses_desktop_gateway_host_rules() {
+        let provider = sample_provider(json!({
+            "env": {
+                "ANTHROPIC_MODEL": "claude-sonnet-4-20250514"
+            }
+        }));
+
+        let config = build_provider_live_config(&provider, "127.0.0.1", 15721, "desktop-secret");
+
+        assert_eq!(
+            config["enterpriseConfig"]["inferenceGatewayBaseUrl"],
+            "https://127.0.0.1:15722/claude-desktop"
+        );
+
+        let lan_config = build_live_config(
+            &provider,
+            &gateway_base_url_for_host("10.29.161.134", 15721),
+            "desktop-secret",
+        );
+        assert_eq!(
+            lan_config["enterpriseConfig"]["inferenceGatewayBaseUrl"],
+            "https://10.29.161.134:15722/claude-desktop"
+        );
+    }
+
+    #[test]
     fn managed_gateway_config_detection_requires_local_https_gateway() {
         assert!(is_managed_gateway_config_for_hosts(
             &json!({
@@ -2862,272 +2555,6 @@ lo0: flags=8049<UP,LOOPBACK,RUNNING,MULTICAST> mtu 16384
             after.get("titleSource").and_then(Value::as_str),
             Some(LOCAL_SESSION_TITLE_SOURCE_PROMPT)
         );
-    }
-
-    #[test]
-    fn lookup_cowork_session_title_target_matches_session_id() {
-        let temp = tempdir().expect("tempdir");
-        let profile_dir = temp.path().join("profile");
-        let sessions_dir = profile_dir
-            .join("local-agent-mode-sessions")
-            .join("org")
-            .join("workspace");
-        fs::create_dir_all(&sessions_dir).expect("create sessions dir");
-
-        write_json_file(
-            &sessions_dir.join("local_pending.json"),
-            &json!({
-                "sessionId": "local_pending",
-                "initialMessage": "帮我检查 session 标题",
-            }),
-        )
-        .expect("write pending session");
-
-        let lookup = lookup_cowork_session_title_target_in_profile(
-            &profile_dir,
-            "local_pending",
-            "帮我检查 session 标题",
-        )
-        .expect("lookup should work");
-
-        match lookup {
-            LocalSessionTitleLookup::Pending {
-                kind: "cowork",
-                description,
-                ..
-            } => assert_eq!(description.as_deref(), Some("帮我检查 session 标题")),
-            other => panic!("unexpected lookup result: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn lookup_claude_code_session_title_target_matches_cli_session_id() {
-        let temp = tempdir().expect("tempdir");
-        let profile_dir = temp.path().join("profile");
-        let sessions_dir = profile_dir
-            .join("claude-code-sessions")
-            .join("org")
-            .join("workspace");
-        fs::create_dir_all(&sessions_dir).expect("create code sessions dir");
-
-        let session_path = sessions_dir.join("local_code.json");
-        write_json_file(
-            &session_path,
-            &json!({
-                "sessionId": "local_code",
-                "cliSessionId": "cli-session-123",
-                "cwd": "/tmp/project"
-            }),
-        )
-        .expect("write code session");
-
-        let lookup = lookup_claude_code_session_title_target_in_profile(
-            &profile_dir,
-            &temp.path().join("projects"),
-            "cli-session-123",
-            "请帮我重构这个函数",
-        )
-        .expect("lookup should work");
-
-        match lookup {
-            LocalSessionTitleLookup::Pending {
-                kind: "code",
-                description,
-                ..
-            } => assert!(description.is_none()),
-            other => panic!("unexpected lookup result: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn lookup_claude_code_session_title_target_derives_description_from_transcript() {
-        let temp = tempdir().expect("tempdir");
-        let profile_dir = temp.path().join("profile");
-        let sessions_dir = profile_dir
-            .join("claude-code-sessions")
-            .join("org")
-            .join("workspace");
-        let projects_dir = temp.path().join("projects").join("demo-project");
-        fs::create_dir_all(&sessions_dir).expect("create code sessions dir");
-        fs::create_dir_all(&projects_dir).expect("create projects dir");
-
-        let session_path = sessions_dir.join("local_code.json");
-        write_json_file(
-            &session_path,
-            &json!({
-                "sessionId": "local_code",
-                "cliSessionId": "cli-session-456",
-                "cwd": "/tmp/project"
-            }),
-        )
-        .expect("write code session");
-
-        fs::write(
-            projects_dir.join("cli-session-456.jsonl"),
-            concat!(
-                "{\"type\":\"queue-operation\",\"operation\":\"enqueue\",\"content\":\"请帮我重构这个函数\"}\n",
-                "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"请帮我重构这个函数\"}}\n"
-            ),
-        )
-        .expect("write transcript");
-
-        let lookup = lookup_claude_code_session_title_target_in_profile(
-            &profile_dir,
-            &temp.path().join("projects"),
-            "cli-session-456",
-            "",
-        )
-        .expect("lookup should work");
-
-        match lookup {
-            LocalSessionTitleLookup::Pending {
-                kind: "code",
-                description,
-                ..
-            } => assert_eq!(description.as_deref(), Some("请帮我重构这个函数")),
-            other => panic!("unexpected lookup result: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn lookup_claude_code_session_title_target_matches_prompt_via_transcript() {
-        let temp = tempdir().expect("tempdir");
-        let profile_dir = temp.path().join("profile");
-        let sessions_dir = profile_dir
-            .join("claude-code-sessions")
-            .join("org")
-            .join("workspace");
-        let projects_dir = temp.path().join("projects").join("demo-project");
-        fs::create_dir_all(&sessions_dir).expect("create code sessions dir");
-        fs::create_dir_all(&projects_dir).expect("create projects dir");
-
-        let session_path = sessions_dir.join("local_code.json");
-        write_json_file(
-            &session_path,
-            &json!({
-                "sessionId": "local_code",
-                "cliSessionId": "cli-session-789",
-                "cwd": "/tmp/project"
-            }),
-        )
-        .expect("write code session");
-
-        fs::write(
-            projects_dir.join("cli-session-789.jsonl"),
-            "{\"type\":\"last-prompt\",\"prompt\":\"请帮我检查标题问题\"}\n",
-        )
-        .expect("write transcript");
-
-        let lookup = lookup_claude_code_session_title_target_in_profile(
-            &profile_dir,
-            &temp.path().join("projects"),
-            "",
-            "请帮我检查标题问题",
-        )
-        .expect("lookup should work");
-
-        match lookup {
-            LocalSessionTitleLookup::Pending {
-                kind: "code",
-                description,
-                ..
-            } => assert_eq!(description.as_deref(), Some("请帮我检查标题问题")),
-            other => panic!("unexpected lookup result: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn lookup_recent_local_session_title_target_prefers_newest_pending_session() {
-        let temp = tempdir().expect("tempdir");
-        let now_ms = current_unix_time_ms();
-        let profile_dir = temp.path().join("profile");
-        let cowork_sessions_dir = profile_dir
-            .join("local-agent-mode-sessions")
-            .join("org")
-            .join("workspace");
-        let code_sessions_dir = profile_dir
-            .join("claude-code-sessions")
-            .join("org")
-            .join("workspace");
-        let projects_dir = temp.path().join("projects").join("demo-project");
-        fs::create_dir_all(&cowork_sessions_dir).expect("create cowork sessions dir");
-        fs::create_dir_all(&code_sessions_dir).expect("create code sessions dir");
-        fs::create_dir_all(&projects_dir).expect("create projects dir");
-
-        write_json_file(
-            &cowork_sessions_dir.join("local_cowork.json"),
-            &json!({
-                "sessionId": "local_cowork",
-                "initialMessage": "旧会话",
-                "createdAt": now_ms.saturating_sub(20_000),
-                "lastActivityAt": now_ms.saturating_sub(15_000),
-            }),
-        )
-        .expect("write cowork session");
-
-        write_json_file(
-            &code_sessions_dir.join("local_code.json"),
-            &json!({
-                "sessionId": "local_code",
-                "cliSessionId": "cli-session-recent",
-                "createdAt": now_ms.saturating_sub(5_000),
-                "lastActivityAt": now_ms.saturating_sub(2_000),
-            }),
-        )
-        .expect("write code session");
-        fs::write(
-            projects_dir.join("cli-session-recent.jsonl"),
-            "{\"type\":\"last-prompt\",\"prompt\":\"新会话\"}\n",
-        )
-        .expect("write transcript");
-
-        let lookup = lookup_recent_local_session_title_target(
-            &profile_dir,
-            Some(temp.path().join("projects").as_path()),
-            LocalSessionTitleLookupPreference::CoworkFirst,
-        )
-        .expect("lookup should work");
-
-        match lookup {
-            LocalSessionTitleLookup::Pending {
-                kind: "code",
-                description,
-                ..
-            } => assert_eq!(description.as_deref(), Some("新会话")),
-            other => panic!("unexpected lookup result: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn lookup_recent_local_session_title_target_ignores_stale_sessions() {
-        let temp = tempdir().expect("tempdir");
-        let now_ms = current_unix_time_ms();
-        let profile_dir = temp.path().join("profile");
-        let sessions_dir = profile_dir
-            .join("local-agent-mode-sessions")
-            .join("org")
-            .join("workspace");
-        fs::create_dir_all(&sessions_dir).expect("create sessions dir");
-
-        write_json_file(
-            &sessions_dir.join("local_stale.json"),
-            &json!({
-                "sessionId": "local_stale",
-                "initialMessage": "太久之前的会话",
-                "createdAt": now_ms.saturating_sub(LOCAL_SESSION_TITLE_RECENT_FALLBACK_MAX_AGE_MS + 30_000),
-                "lastActivityAt": now_ms.saturating_sub(LOCAL_SESSION_TITLE_RECENT_FALLBACK_MAX_AGE_MS + 20_000),
-            }),
-        )
-        .expect("write stale session");
-
-        let lookup = lookup_recent_local_session_title_target(
-            &profile_dir,
-            Some(temp.path().join("projects").as_path()),
-            LocalSessionTitleLookupPreference::CoworkFirst,
-        )
-        .expect("lookup should work");
-
-        assert!(matches!(lookup, LocalSessionTitleLookup::NotFound));
     }
 
     #[test]
@@ -3274,6 +2701,46 @@ lo0: flags=8049<UP,LOOPBACK,RUNNING,MULTICAST> mtu 16384
         );
         assert!(worktrees_obj.contains_key(&worktree_local_id));
         assert!(!worktrees_obj.contains_key("local_stale"));
+
+        let registry = crate::session_links::read_registry_links(&profile_dir)
+            .expect("read session links registry");
+        assert_eq!(registry.len(), 2);
+
+        let worktree_link =
+            crate::session_links::registry_link_for_cli_session(&profile_dir, "cli-session-123")
+                .expect("lookup worktree link")
+                .expect("worktree link exists");
+        assert_eq!(
+            worktree_link.local_session_id.as_deref(),
+            Some(worktree_local_id.as_str())
+        );
+        assert_eq!(
+            worktree_link.local_session_path.as_deref(),
+            Some(
+                bucket
+                    .join(format!("{worktree_local_id}.json"))
+                    .display()
+                    .to_string()
+                    .as_str()
+            )
+        );
+
+        let plain_link =
+            crate::session_links::registry_link_for_cli_session(&profile_dir, "cli-session-456")
+                .expect("lookup plain link")
+                .expect("plain link exists");
+        assert_eq!(
+            plain_link.local_session_id.as_deref(),
+            Some(plain_local_id.as_str())
+        );
+
+        let worktree_doc_after =
+            read_json_file::<Value>(&bucket.join(format!("{worktree_local_id}.json")))
+                .expect("read mirrored worktree session after annotate");
+        assert!(worktree_doc_after
+            .get("canonicalSessionId")
+            .and_then(Value::as_str)
+            .is_some());
     }
 
     #[test]

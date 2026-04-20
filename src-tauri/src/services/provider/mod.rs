@@ -51,6 +51,7 @@ mod tests {
     use serde_json::json;
     use serial_test::serial;
     use std::env;
+    use std::net::TcpListener;
     use std::sync::Arc;
     use tempfile::TempDir;
 
@@ -129,6 +130,11 @@ mod tests {
 
         let db = Arc::new(Database::memory().expect("init db"));
         let state = AppState::new(db.clone());
+        let listen_port = TcpListener::bind("127.0.0.1:0")
+            .expect("bind temp port")
+            .local_addr()
+            .expect("temp port addr")
+            .port();
 
         let original = Provider::with_id(
             "p1".into(),
@@ -151,6 +157,7 @@ mod tests {
             .expect("set local current provider");
 
         db.update_proxy_config(ProxyConfig {
+            listen_port,
             live_takeover_active: true,
             ..Default::default()
         })
@@ -171,7 +178,7 @@ mod tests {
             &get_claude_settings_path(),
             &json!({
                 "env": {
-                    "ANTHROPIC_BASE_URL": "http://127.0.0.1:15721",
+                    "ANTHROPIC_BASE_URL": format!("http://127.0.0.1:{listen_port}"),
                     "ANTHROPIC_API_KEY": "PROXY_MANAGED",
                     "ANTHROPIC_MODEL": "stale-model"
                 },
@@ -233,7 +240,7 @@ mod tests {
             live.get("env")
                 .and_then(|env| env.get("ANTHROPIC_BASE_URL"))
                 .and_then(|v| v.as_str()),
-            Some("http://127.0.0.1:15721"),
+            Some(format!("http://127.0.0.1:{listen_port}").as_str()),
             "proxy base URL should stay intact"
         );
         assert!(

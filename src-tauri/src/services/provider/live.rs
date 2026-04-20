@@ -363,12 +363,11 @@ pub(crate) fn write_live_snapshot(app_type: &AppType, provider: &Provider) -> Re
         }
         AppType::ClaudeDesktop => {
             let gateway_secret = crate::settings::ensure_claude_desktop_gateway_secret()?;
-            let config = crate::claude_desktop_config::build_live_config(
+            let default_proxy = crate::proxy::types::ProxyConfig::default();
+            let config = crate::claude_desktop_config::build_provider_live_config(
                 provider,
-                &crate::claude_desktop_config::gateway_base_url(
-                    &crate::proxy::types::ProxyConfig::default().listen_address,
-                    crate::proxy::types::ProxyConfig::default().listen_port,
-                ),
+                &default_proxy.listen_address,
+                default_proxy.listen_port,
                 &gateway_secret,
             );
             crate::claude_desktop_config::write_live_config(&config)?;

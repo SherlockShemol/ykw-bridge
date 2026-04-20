@@ -157,25 +157,12 @@ impl ProxyService {
         )
         .map_err(|e| format!("构建 claude_desktop 有效配置失败: {e}"))?;
 
-        let global = self
-            .db
-            .get_global_proxy_config()
-            .await
-            .map_err(|e| format!("获取代理配置失败: {e}"))?;
-        let gateway_secret = crate::settings::ensure_claude_desktop_gateway_secret()
-            .map_err(|e| format!("生成 Claude Desktop gateway secret 失败: {e}"))?;
-
-        let config = crate::claude_desktop_config::build_live_config(
-            &Provider {
+        let config = self
+            .build_claude_desktop_live_config(&Provider {
                 settings_config: effective_settings,
                 ..provider.clone()
-            },
-            &crate::claude_desktop_config::gateway_base_url(
-                &global.listen_address,
-                global.listen_port,
-            ),
-            &gateway_secret,
-        );
+            })
+            .await?;
         self.write_claude_desktop_live(&config)?;
         Ok(())
     }
@@ -805,9 +792,25 @@ impl ProxyService {
             .get_proxy_config()
             .await
             .map_err(|e| format!("获取代理配置失败: {e}"))?;
-        Ok(crate::claude_desktop_config::gateway_base_url(
+        Ok(crate::claude_desktop_config::desktop_gateway_base_url(
             &config.listen_address,
             config.listen_port,
+        ))
+    }
+
+    async fn build_claude_desktop_live_config(&self, provider: &Provider) -> Result<Value, String> {
+        let proxy_config = self
+            .db
+            .get_proxy_config()
+            .await
+            .map_err(|e| format!("获取代理配置失败: {e}"))?;
+        let gateway_secret = crate::settings::ensure_claude_desktop_gateway_secret()
+            .map_err(|e| format!("生成 Claude Desktop gateway secret 失败: {e}"))?;
+        Ok(crate::claude_desktop_config::build_provider_live_config(
+            provider,
+            &proxy_config.listen_address,
+            proxy_config.listen_port,
+            &gateway_secret,
         ))
     }
 
@@ -826,14 +829,8 @@ impl ProxyService {
             crate::settings::get_effective_current_provider(&self.db, &AppType::ClaudeDesktop)
         {
             if let Ok(Some(provider)) = self.db.get_provider_by_id(&current_id, "claude_desktop") {
-                let gateway_secret = crate::settings::ensure_claude_desktop_gateway_secret()
-                    .map_err(|e| format!("生成 Claude Desktop gateway secret 失败: {e}"))?;
                 let gateway_url = self.build_claude_desktop_proxy_url().await?;
-                let config = crate::claude_desktop_config::build_live_config(
-                    &provider,
-                    &gateway_url,
-                    &gateway_secret,
-                );
+                let config = self.build_claude_desktop_live_config(&provider).await?;
                 self.write_claude_desktop_live(&config)?;
                 log::info!("Claude Desktop Live 配置已接管，代理地址: {gateway_url}");
             }
@@ -865,14 +862,8 @@ impl ProxyService {
                     .get_provider_by_id(&current_id, "claude_desktop")
                     .map_err(|e| format!("读取 Claude Desktop 供应商失败: {e}"))?
                     .ok_or_else(|| "Claude Desktop 当前供应商不存在".to_string())?;
-                let gateway_secret = crate::settings::ensure_claude_desktop_gateway_secret()
-                    .map_err(|e| format!("生成 Claude Desktop gateway secret 失败: {e}"))?;
                 let gateway_url = self.build_claude_desktop_proxy_url().await?;
-                let config = crate::claude_desktop_config::build_live_config(
-                    &provider,
-                    &gateway_url,
-                    &gateway_secret,
-                );
+                let config = self.build_claude_desktop_live_config(&provider).await?;
                 self.write_claude_desktop_live(&config)?;
                 log::info!("Claude Desktop Live 配置已接管，代理地址: {gateway_url}");
             }
@@ -900,17 +891,8 @@ impl ProxyService {
                     if let Ok(Some(provider)) =
                         self.db.get_provider_by_id(&current_id, "claude_desktop")
                     {
-                        if let Ok(gateway_secret) =
-                            crate::settings::ensure_claude_desktop_gateway_secret()
-                        {
-                            if let Ok(gateway_url) = self.build_claude_desktop_proxy_url().await {
-                                let config = crate::claude_desktop_config::build_live_config(
-                                    &provider,
-                                    &gateway_url,
-                                    &gateway_secret,
-                                );
-                                let _ = self.write_claude_desktop_live(&config);
-                            }
+                        if let Ok(config) = self.build_claude_desktop_live_config(&provider).await {
+                            let _ = self.write_claude_desktop_live(&config);
                         }
                     }
                 }
@@ -1242,8 +1224,26 @@ impl ProxyService {
         let backup_json = match app_type_enum {
             AppType::Claude => serde_json::to_string(&effective_settings)
                 .map_err(|e| format!("序列化 Claude 配置失败: {e}"))?,
-            AppType::ClaudeDesktop => serde_json::to_string(&effective_settings)
-                .map_err(|e| format!("序列化 Claude Desktop 配置失败: {e}"))?,
+            AppType::ClaudeDesktop => {
+                let proxy_config = self
+                    .db
+                    .get_global_proxy_config()
+                    .await
+                    .map_err(|e| format!("获取全局代理配置失败: {e}"))?;
+                let gateway_secret = crate::settings::ensure_claude_desktop_gateway_secret()
+                    .map_err(|e| format!("生成 Claude Desktop gateway secret 失败: {e}"))?;
+                let config = crate::claude_desktop_config::build_provider_live_config(
+                    &Provider {
+                        settings_config: effective_settings,
+                        ..provider.clone()
+                    },
+                    &proxy_config.listen_address,
+                    proxy_config.listen_port,
+                    &gateway_secret,
+                );
+                serde_json::to_string(&config)
+                    .map_err(|e| format!("序列化 Claude Desktop 配置失败: {e}"))?
+            }
         };
 
         self.db
@@ -2102,6 +2102,93 @@ mod tests {
             stored.get("includeCoAuthoredBy").and_then(|v| v.as_bool()),
             Some(false),
             "common config should be applied into Claude restore backup"
+        );
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn build_claude_desktop_proxy_url_prefers_desktop_gateway_host() {
+        let _home = TempHome::new();
+        crate::settings::reload_settings().expect("reload settings");
+
+        let db = Arc::new(Database::memory().expect("init db"));
+        let service = ProxyService::new(db.clone());
+
+        db.update_global_proxy_config(crate::proxy::types::GlobalProxyConfig {
+            listen_address: "127.0.0.1".to_string(),
+            listen_port: 15721,
+            proxy_enabled: false,
+            enable_logging: false,
+        })
+        .await
+        .expect("set global proxy config");
+
+        let url = service
+            .build_claude_desktop_proxy_url()
+            .await
+            .expect("build desktop proxy url");
+        assert_eq!(url, "https://127.0.0.1:15722/claude-desktop");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn update_live_backup_from_provider_stores_desktop_managed_config_shape() {
+        let _home = TempHome::new();
+        crate::settings::reload_settings().expect("reload settings");
+
+        let db = Arc::new(Database::memory().expect("init db"));
+        db.update_global_proxy_config(crate::proxy::types::GlobalProxyConfig {
+            listen_address: "127.0.0.1".to_string(),
+            listen_port: 15721,
+            proxy_enabled: false,
+            enable_logging: false,
+        })
+        .await
+        .expect("set global proxy config");
+
+        let service = ProxyService::new(db.clone());
+
+        let provider = Provider::with_id(
+            "desktop-p1".to_string(),
+            "Desktop P1".to_string(),
+            json!({
+                "env": {
+                    "ANTHROPIC_MODEL": "claude-sonnet-4-20250514"
+                }
+            }),
+            None,
+        );
+
+        service
+            .update_live_backup_from_provider("claude_desktop", &provider)
+            .await
+            .expect("update desktop live backup");
+
+        let backup = db
+            .get_live_backup("claude_desktop")
+            .await
+            .expect("get desktop live backup")
+            .expect("desktop backup exists");
+        let stored: Value =
+            serde_json::from_str(&backup.original_config).expect("parse desktop backup json");
+
+        assert_eq!(
+            stored
+                .get("enterpriseConfig")
+                .and_then(|v| v.get("inferenceProvider"))
+                .and_then(|v| v.as_str()),
+            Some("gateway")
+        );
+        assert_eq!(
+            stored
+                .get("enterpriseConfig")
+                .and_then(|v| v.get("inferenceGatewayBaseUrl"))
+                .and_then(|v| v.as_str()),
+            Some("https://127.0.0.1:15722/claude-desktop")
+        );
+        assert!(
+            stored.get("env").is_none(),
+            "desktop backup should store final managed config, not raw provider settings"
         );
     }
 }
