@@ -438,7 +438,7 @@ fn create_usage_collector(
     let start_time = ctx.start_time;
     let stream_parser = parser_config.stream_parser;
     let model_extractor = parser_config.model_extractor;
-    let session_id = ctx.session_id.clone();
+    let session_id = ctx.session_identity.remote_session_id.clone();
 
     SseUsageCollector::new(start_time, move |events, first_token_ms| {
         if !logging_enabled {
@@ -521,7 +521,7 @@ fn spawn_log_usage(
     let model = model.to_string();
     let request_model = request_model.to_string();
     let latency_ms = ctx.latency_ms();
-    let session_id = ctx.session_id.clone();
+    let session_id = ctx.session_identity.remote_session_id.clone();
 
     tokio::spawn(async move {
         log_usage_internal(

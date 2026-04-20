@@ -28,7 +28,9 @@ use super::{
     ProxyError,
 };
 use crate::app_config::AppType;
-use crate::proxy::sse::strip_sse_field;
+use crate::config::get_claude_config_dir;
+use crate::proxy::{session::SessionIdentityResult, sse::strip_sse_field};
+use crate::session_links::{self, build_identity_input, SessionLinkIdentityInput};
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
@@ -342,7 +344,7 @@ fn extract_first_turn_title_prompt_from_responses_input(input: &Value) -> Option
     }
 }
 
-fn extract_first_turn_title_prompt(body: &Value) -> Option<String> {
+pub(crate) fn extract_first_turn_title_prompt(body: &Value) -> Option<String> {
     body.get("messages")
         .and_then(Value::as_array)
         .and_then(|messages| extract_first_turn_title_prompt_from_messages(messages))
@@ -354,160 +356,166 @@ fn extract_first_turn_title_prompt(body: &Value) -> Option<String> {
 
 pub(crate) async fn run_targeted_session_title_sync(
     state: ProxyState,
-    session_id: &str,
-    prompt: &str,
-    preference: crate::claude_desktop_config::LocalSessionTitleLookupPreference,
+    identity: SessionLinkIdentityInput,
 ) -> Result<bool, ProxyError> {
-    let session_id = session_id.trim();
-    let prompt = prompt.trim();
+    let session_id = identity.remote_session_id.trim().to_string();
+    let prompt = identity
+        .initial_prompt
+        .as_deref()
+        .unwrap_or_default()
+        .trim()
+        .to_string();
     if session_id.is_empty() && prompt.is_empty() {
         return Ok(false);
     }
 
-    let lookup_session_id = session_id.to_string();
-    let lookup_prompt = prompt.to_string();
+    let identity_for_lookup = identity.clone();
     let lookup = tokio::task::spawn_blocking(move || {
-        crate::claude_desktop_config::lookup_local_session_title_target(
-            &lookup_session_id,
-            &lookup_prompt,
-            preference,
+        session_links::resolve_title_target(
+            &crate::claude_desktop_config::resolve_profile_dir(),
+            Some(&get_claude_config_dir().join("projects")),
+            &identity_for_lookup,
         )
     })
     .await
     .map_err(|e| ProxyError::Internal(format!("Targeted title lookup task failed: {e}")))?
     .map_err(|e| ProxyError::Internal(format!("Targeted title lookup failed: {e}")))?;
 
-    match lookup {
-        crate::claude_desktop_config::LocalSessionTitleLookup::NotFound => Ok(false),
-        crate::claude_desktop_config::LocalSessionTitleLookup::AlreadyTitled { kind, path } => {
-            log::debug!(
-                "Claude Desktop {} 会话已有标题，跳过自动命名: sessionId={}, path={}",
-                kind,
-                session_id,
-                path.display()
-            );
-            Ok(true)
-        }
-        crate::claude_desktop_config::LocalSessionTitleLookup::Pending {
-            kind,
-            path,
-            description,
-        } => {
-            let path_key = path.display().to_string();
-            {
-                let mut running = LOCAL_SESSION_TITLE_PATH_SYNC_RUNNING
-                    .lock()
-                    .expect("local session title sync lock poisoned");
-                if !running.insert(path_key.clone()) {
-                    return Ok(true);
-                }
-            }
+    let Some(lookup) = lookup else {
+        return Ok(false);
+    };
 
-            let result = async {
-            let description = if prompt.is_empty() {
-                description
-            } else {
-                Some(prompt.to_string())
-            };
-            let Some(description) = description
-                .map(|value| value.trim().to_string())
-                .filter(|value| !value.is_empty())
-            else {
-                return Ok(false);
-            };
+    if lookup.has_title {
+        let path = lookup.path.display().to_string();
+        log::debug!(
+            "Claude Desktop {} 会话已有标题，跳过自动命名: sessionId={}, canonicalSessionId={}, path={}",
+            lookup.record.kind.as_str(),
+            session_id,
+            lookup.record.canonical_session_id,
+            path
+        );
+        return Ok(true);
+    }
 
-            let temp_path = path.clone();
-            let temp_prompt = description.clone();
-            let persisted_temp = tokio::task::spawn_blocking(move || {
-                crate::claude_desktop_config::persist_prompt_session_title(&temp_path, &temp_prompt)
-            })
-            .await
-            .map_err(|e| {
-                ProxyError::Internal(format!("Prompt title persistence task failed: {e}"))
-            })?
-            .map_err(|e| ProxyError::Internal(format!("Prompt title persistence failed: {e}")))?;
-
-            if persisted_temp {
-                log::info!(
-                    "Claude Desktop {} 会话已写入临时标题: sessionId={}, path={}, title={}",
-                    kind,
-                    session_id,
-                    path.display(),
-                    description
-                );
-            }
-
-            let generated_title = match generate_claude_desktop_title_via_gateway(
-                &state,
-                &description,
-                &[],
-            )
-            .await
-            {
-                Ok(title) => title,
-                Err(err) => {
-                    log::debug!(
-                        "Claude Desktop {} 会话自然标题生成失败，保留临时标题: sessionId={}, error={}",
-                        kind,
-                        session_id,
-                        err
-                    );
-                    return Ok(true);
-                }
-            };
-
-            let persist_path = path.clone();
-            let generated_title_for_persist = generated_title.clone();
-            let persisted_generated = tokio::task::spawn_blocking(move || {
-                crate::claude_desktop_config::replace_prompt_session_title(
-                    &persist_path,
-                    &generated_title_for_persist,
-                )
-            })
-            .await
-            .map_err(|e| {
-                ProxyError::Internal(format!("Generated title persistence task failed: {e}"))
-            })?
-            .map_err(|e| {
-                ProxyError::Internal(format!("Generated title persistence failed: {e}"))
-            })?;
-
-            if persisted_generated {
-                log::info!(
-                    "Claude Desktop {} 会话自然标题已更新: sessionId={}, path={}, title={}",
-                    kind,
-                    session_id,
-                    path.display(),
-                    generated_title
-                );
-            }
-
-            Ok(true)
-            }
-            .await;
-
-            let mut running = LOCAL_SESSION_TITLE_PATH_SYNC_RUNNING
-                .lock()
-                .expect("local session title sync lock poisoned");
-            running.remove(&path_key);
-
-            result
+    let kind = lookup.record.kind.as_str();
+    let path = lookup.path.clone();
+    let description = lookup.description.clone();
+    let canonical_session_id = lookup.record.canonical_session_id.clone();
+    let path_key = path.display().to_string();
+    {
+        let mut running = LOCAL_SESSION_TITLE_PATH_SYNC_RUNNING
+            .lock()
+            .expect("local session title sync lock poisoned");
+        if !running.insert(path_key.clone()) {
+            return Ok(true);
         }
     }
+
+    let result = async {
+        let description = if prompt.is_empty() {
+            description
+        } else {
+            Some(prompt.to_string())
+        };
+        let Some(description) = description
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+        else {
+            return Ok(false);
+        };
+
+        let temp_path = path.clone();
+        let temp_prompt = description.clone();
+        let persisted_temp = tokio::task::spawn_blocking(move || {
+            crate::claude_desktop_config::persist_prompt_session_title(&temp_path, &temp_prompt)
+        })
+        .await
+        .map_err(|e| ProxyError::Internal(format!("Prompt title persistence task failed: {e}")))?
+        .map_err(|e| ProxyError::Internal(format!("Prompt title persistence failed: {e}")))?;
+
+        if persisted_temp {
+            log::info!(
+                "Claude Desktop {} 会话已写入临时标题: sessionId={}, canonicalSessionId={}, path={}, title={}",
+                kind,
+                session_id,
+                canonical_session_id,
+                path.display(),
+                description
+            );
+        }
+
+        let generated_title = match generate_claude_desktop_title_via_gateway(&state, &description, &[]).await {
+            Ok(title) => title,
+            Err(err) => {
+                log::debug!(
+                    "Claude Desktop {} 会话自然标题生成失败，保留临时标题: sessionId={}, canonicalSessionId={}, error={}",
+                    kind,
+                    session_id,
+                    canonical_session_id,
+                    err
+                );
+                return Ok(true);
+            }
+        };
+
+        let persist_path = path.clone();
+        let generated_title_for_persist = generated_title.clone();
+        let persisted_generated = tokio::task::spawn_blocking(move || {
+            crate::claude_desktop_config::replace_prompt_session_title(
+                &persist_path,
+                &generated_title_for_persist,
+            )
+        })
+        .await
+        .map_err(|e| ProxyError::Internal(format!("Generated title persistence task failed: {e}")))?
+        .map_err(|e| ProxyError::Internal(format!("Generated title persistence failed: {e}")))?;
+
+        if persisted_generated {
+            log::info!(
+                "Claude Desktop {} 会话自然标题已更新: sessionId={}, canonicalSessionId={}, path={}, title={}",
+                kind,
+                session_id,
+                canonical_session_id,
+                path.display(),
+                generated_title
+            );
+        }
+
+        let _ = session_links::update_last_seen(&canonical_session_id, &path);
+        Ok(true)
+    }
+    .await;
+
+    let mut running = LOCAL_SESSION_TITLE_PATH_SYNC_RUNNING
+        .lock()
+        .expect("local session title sync lock poisoned");
+    running.remove(&path_key);
+
+    result
 }
 
-fn schedule_targeted_session_title_sync(
-    state: ProxyState,
-    session_id: String,
-    prompt: String,
-    preference: crate::claude_desktop_config::LocalSessionTitleLookupPreference,
-) {
-    if session_id.trim().is_empty() && prompt.trim().is_empty() {
+fn schedule_targeted_session_title_sync(state: ProxyState, identity: SessionLinkIdentityInput) {
+    if identity.remote_session_id.trim().is_empty()
+        && identity
+            .initial_prompt
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or_default()
+            .is_empty()
+    {
         return;
     }
 
-    let has_prompt = !prompt.trim().is_empty();
-    let sync_key = build_session_title_sync_key(&session_id, &prompt);
+    let session_id = identity.remote_session_id.trim().to_string();
+    let prompt = identity
+        .initial_prompt
+        .as_deref()
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let has_prompt = !prompt.is_empty();
+    let sync_key = build_session_title_sync_key(&identity);
+    let identity_for_task = identity.clone();
     {
         let mut running = TARGETED_SESSION_TITLE_SYNC_RUNNING
             .lock()
@@ -518,29 +526,25 @@ fn schedule_targeted_session_title_sync(
     }
 
     log::info!(
-        "Claude Desktop 会话标题同步已触发: sessionId={}, promptExtracted={}, preference={:?}",
+        "Claude Desktop 会话标题同步已触发: sessionId={}, promptExtracted={}",
         session_id,
         has_prompt,
-        preference
     );
 
     tokio::spawn(async move {
         let result =
-            run_targeted_session_title_sync(state.clone(), &session_id, &prompt, preference).await;
+            run_targeted_session_title_sync(state.clone(), identity_for_task.clone()).await;
 
         match result {
             Ok(true) => {
                 state
                     .local_session_title_watcher
-                    .clear_pending_sync(&session_id, &prompt);
+                    .clear_pending_sync(&identity_for_task);
             }
             Ok(false) => {
-                state.local_session_title_watcher.register_pending_sync(
-                    state.clone(),
-                    session_id.clone(),
-                    prompt.clone(),
-                    preference,
-                );
+                state
+                    .local_session_title_watcher
+                    .register_pending_sync(state.clone(), identity_for_task.clone());
                 log::debug!(
                     "Claude Desktop 会话自动命名暂未命中本地会话，等待 watcher 捕获本地文件落地: sessionId={}, promptExtracted={}",
                     session_id,
@@ -556,19 +560,20 @@ fn schedule_targeted_session_title_sync(
             }
         }
 
+        let sync_key_for_remove = build_session_title_sync_key(&identity_for_task);
+
         let mut running = TARGETED_SESSION_TITLE_SYNC_RUNNING
             .lock()
             .expect("targeted title sync lock poisoned");
-        running.remove(&sync_key);
+        running.remove(&sync_key_for_remove);
     });
 }
 
 fn maybe_schedule_claude_desktop_title_sync(
     state: &ProxyState,
     headers: &HeaderMap,
-    session_id: &str,
+    session_identity: &SessionIdentityResult,
     body: &Value,
-    preference: crate::claude_desktop_config::LocalSessionTitleLookupPreference,
 ) {
     if should_skip_title_sync(headers) {
         return;
@@ -578,11 +583,29 @@ fn maybe_schedule_claude_desktop_title_sync(
     if is_session_title_generation_prompt(&prompt) {
         return;
     }
+
+    let initial_prompt = if prompt.trim().is_empty() {
+        session_identity.initial_prompt.clone()
+    } else {
+        Some(prompt.trim().to_string())
+    };
+    let initial_prompt_hash = initial_prompt
+        .as_deref()
+        .map(session_links::hash_prompt)
+        .or_else(|| session_identity.initial_prompt_hash.clone());
+    let initial_prompt_preview = initial_prompt
+        .as_deref()
+        .map(str::to_string)
+        .or_else(|| session_identity.initial_prompt_preview.clone());
+
     schedule_targeted_session_title_sync(
         state.clone(),
-        session_id.trim().to_string(),
-        prompt,
-        preference,
+        build_identity_input(
+            session_identity.remote_session_id.clone(),
+            initial_prompt,
+            initial_prompt_hash,
+            initial_prompt_preview,
+        ),
     );
 }
 
@@ -767,6 +790,82 @@ pub async fn handle_session_title(
     Ok(Json(json!({ "title": title })))
 }
 
+fn log_claude_desktop_request_shape(tag: &str, body: &Value) {
+    let top_level_keys = body
+        .as_object()
+        .map(|obj| obj.keys().cloned().collect::<Vec<_>>())
+        .unwrap_or_default();
+    let metadata_keys = body
+        .get("metadata")
+        .and_then(Value::as_object)
+        .map(|obj| obj.keys().cloned().collect::<Vec<_>>())
+        .unwrap_or_default();
+    let metadata_user_id = body
+        .pointer("/metadata/user_id")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let messages_len = body.get("messages").and_then(Value::as_array).map(Vec::len);
+    let input_len = body.get("input").and_then(Value::as_array).map(Vec::len);
+    let first_user_content_kind = body
+        .get("messages")
+        .and_then(Value::as_array)
+        .and_then(|messages| {
+            messages.iter().find_map(|message| {
+                if message.get("role").and_then(Value::as_str) != Some("user") {
+                    return None;
+                }
+                match message.get("content") {
+                    Some(Value::String(_)) => Some("string".to_string()),
+                    Some(Value::Array(items)) => Some(format!(
+                        "array:{}",
+                        items
+                            .first()
+                            .and_then(Value::as_object)
+                            .and_then(|item| item.get("type"))
+                            .and_then(Value::as_str)
+                            .unwrap_or("unknown")
+                    )),
+                    Some(Value::Object(_)) => Some("object".to_string()),
+                    Some(_) => Some("other".to_string()),
+                    None => None,
+                }
+            })
+        })
+        .or_else(|| {
+            body.get("input")
+                .and_then(Value::as_array)
+                .and_then(|items| {
+                    items.iter().find_map(|item| {
+                        if item.get("role").and_then(Value::as_str) != Some("user") {
+                            return None;
+                        }
+                        match item.get("content") {
+                            Some(Value::String(_)) => Some("string".to_string()),
+                            Some(Value::Array(values)) => Some(format!(
+                                "array:{}",
+                                values
+                                    .first()
+                                    .and_then(Value::as_object)
+                                    .and_then(|value| value.get("type"))
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("unknown")
+                            )),
+                            Some(Value::Object(_)) => Some("object".to_string()),
+                            Some(_) => Some("other".to_string()),
+                            None => None,
+                        }
+                    })
+                })
+        })
+        .unwrap_or_else(|| "none".to_string());
+
+    log::info!(
+        "[{tag}] Claude Desktop 入站请求形状: topLevelKeys={top_level_keys:?}, metadataKeys={metadata_keys:?}, metadataUserId={metadata_user_id:?}, metadataUserIdLen={:?}, stream={}, messagesLen={messages_len:?}, inputLen={input_len:?}, firstUserContentKind={first_user_content_kind}",
+        metadata_user_id.as_ref().map(|value| value.len()),
+        body.get("stream").and_then(Value::as_bool).unwrap_or(false)
+    );
+}
+
 fn merge_missing_fields(target: &mut Value, fallback: &Value) {
     let (Some(target_obj), Some(fallback_obj)) = (target.as_object_mut(), fallback.as_object())
     else {
@@ -899,13 +998,8 @@ async fn handle_claude_messages_for_app(
     let mut ctx =
         RequestContext::new(&state, &body, &headers, app_type.clone(), tag, app_type_str).await?;
     if app_type == AppType::ClaudeDesktop {
-        maybe_schedule_claude_desktop_title_sync(
-            &state,
-            &headers,
-            &ctx.session_id,
-            &body,
-            crate::claude_desktop_config::LocalSessionTitleLookupPreference::CoworkFirst,
-        );
+        log_claude_desktop_request_shape(tag, &body);
+        maybe_schedule_claude_desktop_title_sync(&state, &headers, &ctx.session_identity, &body);
     }
 
     let endpoint = uri
@@ -969,7 +1063,7 @@ mod tests {
     use super::{
         build_official_session_title_prompt, extract_claude_desktop_model_ids,
         extract_first_turn_title_prompt, is_session_title_generation_prompt,
-        parse_responses_sse_body, sanitize_generated_title,
+        log_claude_desktop_request_shape, parse_responses_sse_body, sanitize_generated_title,
     };
     use serde_json::json;
 
@@ -1145,6 +1239,33 @@ mod tests {
 
         assert!(is_session_title_generation_prompt(prompt));
         assert!(!is_session_title_generation_prompt("你好"));
+    }
+
+    #[test]
+    fn log_claude_desktop_request_shape_accepts_messages_and_input_bodies() {
+        let messages_body = json!({
+            "stream": true,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [{"type": "text", "text": "hello"}]
+                }
+            ],
+            "metadata": {
+                "user_id": "user_x_session_1"
+            }
+        });
+        log_claude_desktop_request_shape("Claude Desktop", &messages_body);
+
+        let input_body = json!({
+            "input": [
+                {
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": "hello"}]
+                }
+            ]
+        });
+        log_claude_desktop_request_shape("Claude Desktop", &input_body);
     }
 }
 
@@ -1349,7 +1470,7 @@ fn log_forward_error(
         error_message,
         ctx.latency_ms(),
         is_streaming,
-        Some(ctx.session_id.clone()),
+        Some(ctx.session_identity.remote_session_id.clone()),
         None,
     ) {
         log::warn!("记录失败请求日志失败: {e}");

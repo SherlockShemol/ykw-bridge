@@ -5,9 +5,10 @@
 use crate::app_config::AppType;
 use crate::provider::Provider;
 use crate::proxy::{
-    extract_session_id,
+    extract_session_identity,
     forwarder::RequestForwarder,
     server::ProxyState,
+    session::SessionIdentityResult,
     types::{AppProxyConfig, CopilotOptimizerConfig, OptimizerConfig, RectifierConfig},
     ProxyError,
 };
@@ -55,8 +56,8 @@ pub struct RequestContext {
     /// 应用类型（预留，目前通过 app_type_str 使用）
     #[allow(dead_code)]
     pub app_type: AppType,
-    /// Session ID（从客户端请求提取或新生成）
-    pub session_id: String,
+    /// Session identity（标题同步和日志关联）
+    pub session_identity: SessionIdentityResult,
     /// 整流器配置
     pub rectifier_config: RectifierConfig,
     /// 优化器配置
@@ -110,16 +111,15 @@ impl RequestContext {
             .unwrap_or("unknown")
             .to_string();
 
-        // 提取 Session ID
-        let session_result = extract_session_id(headers, body);
-        let session_id = session_result.session_id.clone();
+        let session_identity = extract_session_identity(headers, body);
 
         log::debug!(
-            "[{}] Session ID: {} (from {:?}, client_provided: {})",
+            "[{}] Session ID: {} (from {:?}, client_provided: {}, prompt_hash: {:?})",
             tag,
-            session_id,
-            session_result.source,
-            session_result.client_provided
+            session_identity.remote_session_id,
+            session_identity.source,
+            session_identity.client_provided,
+            session_identity.initial_prompt_hash
         );
 
         // 使用共享的 ProviderRouter 选择 Provider（熔断器状态跨请求保持）
@@ -147,7 +147,7 @@ impl RequestContext {
             provider.name,
             request_model,
             providers.len(),
-            session_id
+            session_identity.remote_session_id
         );
 
         Ok(Self {
@@ -160,7 +160,7 @@ impl RequestContext {
             tag,
             app_type_str,
             app_type,
-            session_id,
+            session_identity,
             rectifier_config,
             optimizer_config,
             copilot_optimizer_config,

@@ -42,7 +42,7 @@ pub use error::ProxyError;
 #[allow(unused_imports)]
 pub use provider_router::ProviderRouter;
 #[allow(unused_imports)]
-pub use session::{extract_session_id, SessionIdResult, SessionIdSource};
+pub use session::{extract_session_id, extract_session_identity, SessionIdResult, SessionIdSource};
 #[allow(unused_imports)]
 pub use types::{ProxyConfig, ProxyServerInfo, ProxyStatus};
 

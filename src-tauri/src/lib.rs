@@ -22,6 +22,7 @@ mod provider_defaults;
 mod proxy;
 mod rustls_provider;
 mod services;
+mod session_links;
 mod session_manager;
 mod settings;
 mod store;

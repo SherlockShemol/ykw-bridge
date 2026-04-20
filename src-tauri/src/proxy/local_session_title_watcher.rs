@@ -1,5 +1,6 @@
 use super::{handlers::run_targeted_session_title_sync, server::ProxyState};
-use crate::claude_desktop_config::{resolve_profile_dir, LocalSessionTitleLookupPreference};
+use crate::claude_desktop_config::resolve_profile_dir;
+use crate::session_links::{self, SessionLinkIdentityInput};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::{
     collections::HashMap,
@@ -29,18 +30,32 @@ struct LocalSessionTitleWatcherInner {
 
 #[derive(Clone)]
 struct PendingSessionTitleSync {
-    session_id: String,
-    prompt: String,
-    preference: LocalSessionTitleLookupPreference,
+    identity: SessionLinkIdentityInput,
     registered_at_ms: u64,
 }
 
-pub(crate) fn build_session_title_sync_key(session_id: &str, prompt: &str) -> String {
-    let session_id = session_id.trim();
-    if !session_id.is_empty() {
-        format!("session:{session_id}")
+pub(crate) fn build_session_title_sync_key(identity: &SessionLinkIdentityInput) -> String {
+    let remote_session_id = identity.remote_session_id.trim();
+    if !remote_session_id.is_empty() {
+        return session_links::sync_key(remote_session_id);
+    }
+    let prompt_hash = identity
+        .initial_prompt_hash
+        .as_deref()
+        .unwrap_or_default()
+        .trim();
+    if !prompt_hash.is_empty() {
+        return session_links::sync_key(prompt_hash);
+    }
+    let prompt = identity
+        .initial_prompt
+        .as_deref()
+        .unwrap_or_default()
+        .trim();
+    if prompt.is_empty() {
+        session_links::sync_key("")
     } else {
-        format!("prompt:{}", prompt.trim())
+        session_links::sync_key(prompt)
     }
 }
 
@@ -52,21 +67,24 @@ impl LocalSessionTitleWatcher {
     pub(crate) fn register_pending_sync(
         &self,
         state: ProxyState,
-        session_id: String,
-        prompt: String,
-        preference: LocalSessionTitleLookupPreference,
+        identity: SessionLinkIdentityInput,
     ) {
-        if session_id.trim().is_empty() && prompt.trim().is_empty() {
+        if identity.remote_session_id.trim().is_empty()
+            && identity
+                .initial_prompt
+                .as_deref()
+                .map(str::trim)
+                .unwrap_or_default()
+                .is_empty()
+        {
             return;
         }
 
         self.ensure_started(state);
 
-        let key = build_session_title_sync_key(&session_id, &prompt);
+        let key = build_session_title_sync_key(&identity);
         let pending = PendingSessionTitleSync {
-            session_id: session_id.trim().to_string(),
-            prompt: prompt.trim().to_string(),
-            preference,
+            identity,
             registered_at_ms: current_unix_time_ms(),
         };
 
@@ -78,8 +96,8 @@ impl LocalSessionTitleWatcher {
         entries.insert(key, pending);
     }
 
-    pub(crate) fn clear_pending_sync(&self, session_id: &str, prompt: &str) {
-        let key = build_session_title_sync_key(session_id, prompt);
+    pub(crate) fn clear_pending_sync(&self, identity: &SessionLinkIdentityInput) {
+        let key = build_session_title_sync_key(identity);
         let mut entries = self
             .inner
             .pending
@@ -165,22 +183,15 @@ impl LocalSessionTitleWatcher {
         }
 
         for entry in pending_entries {
-            match run_targeted_session_title_sync(
-                state.clone(),
-                &entry.session_id,
-                &entry.prompt,
-                entry.preference,
-            )
-            .await
-            {
+            match run_targeted_session_title_sync(state.clone(), entry.identity.clone()).await {
                 Ok(true) => {
-                    self.clear_pending_sync(&entry.session_id, &entry.prompt);
+                    self.clear_pending_sync(&entry.identity);
                 }
                 Ok(false) => {}
                 Err(err) => {
                     log::debug!(
                         "Claude Desktop 本地会话 watcher 标题同步失败: sessionId={}, error={}",
-                        entry.session_id,
+                        entry.identity.remote_session_id,
                         err
                     );
                 }
@@ -243,17 +254,28 @@ fn current_unix_time_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::{build_session_title_sync_key, is_relevant_session_json_path};
+    use crate::session_links::build_identity_input;
     use std::path::Path;
 
     #[test]
-    fn session_title_sync_key_prefers_session_id() {
+    fn session_title_sync_key_prefers_remote_session_id() {
         assert_eq!(
-            build_session_title_sync_key("abc", "hello"),
-            "session:abc".to_string()
+            build_session_title_sync_key(&build_identity_input(
+                "abc".to_string(),
+                Some("hello".to_string()),
+                Some("hash".to_string()),
+                Some("hello".to_string())
+            )),
+            crate::session_links::sync_key("abc")
         );
         assert_eq!(
-            build_session_title_sync_key("", "hello"),
-            "prompt:hello".to_string()
+            build_session_title_sync_key(&build_identity_input(
+                "".to_string(),
+                Some("hello".to_string()),
+                Some("hash".to_string()),
+                Some("hello".to_string())
+            )),
+            crate::session_links::sync_key("hash")
         );
     }
 
