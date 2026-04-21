@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
@@ -35,6 +35,8 @@ const LAUNCH_SHIM_MARKER: &str = "# ykw-bridge-claude-launch-shim";
 const LAUNCH_SHIM_BACKUP_SUFFIX: &str = ".ykw-bridge-original";
 const CLAUDE_CODE_SESSION_BUCKET_DIRNAME: &str = "00000000-0000-4000-8000-000000000001";
 const GIT_WORKTREES_FILENAME: &str = "git-worktrees.json";
+const CODE_SESSION_TOMBSTONES_FILENAME: &str = "claude-code-sync-tombstones.json";
+const CODE_SESSION_TOMBSTONES_VERSION: u32 = 1;
 const CLAUDE_COMPACT_CONTINUATION_PREFIX: &str =
     "This session is being continued from a previous conversation that ran out of context.";
 
@@ -171,8 +173,36 @@ struct InferredWorktreeMeta {
     source_branch: String,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CodeSessionTombstones {
+    #[serde(default = "default_code_session_tombstones_version")]
+    version: u32,
+    #[serde(default)]
+    deleted_cli_session_ids: BTreeSet<String>,
+}
+
+fn default_code_session_tombstones_version() -> u32 {
+    CODE_SESSION_TOMBSTONES_VERSION
+}
+
 fn resolve_git_worktrees_path(profile_dir: &Path) -> PathBuf {
     profile_dir.join(GIT_WORKTREES_FILENAME)
+}
+
+fn resolve_code_session_tombstones_path(profile_dir: &Path) -> PathBuf {
+    profile_dir.join(CODE_SESSION_TOMBSTONES_FILENAME)
+}
+
+fn read_code_session_tombstones(profile_dir: &Path) -> Result<CodeSessionTombstones, AppError> {
+    let path = resolve_code_session_tombstones_path(profile_dir);
+    if !path.exists() {
+        return Ok(CodeSessionTombstones {
+            version: CODE_SESSION_TOMBSTONES_VERSION,
+            deleted_cli_session_ids: BTreeSet::new(),
+        });
+    }
+    read_json_file(&path)
 }
 
 fn collect_claude_project_jsonl_paths(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), AppError> {
@@ -379,7 +409,8 @@ fn parse_claude_code_mirror_session(
     let file = fs::File::open(path).map_err(|e| AppError::io(path, e))?;
     let reader = BufReader::new(file);
 
-    let mut session_id: Option<String> = None;
+    let transcript_session_id = infer_session_id_from_transcript_filename(path);
+    let mut session_id: Option<String> = transcript_session_id.clone();
     let mut cwd: Option<String> = None;
     let mut created_at: Option<u64> = None;
     let mut last_activity_at: Option<u64> = None;
@@ -399,11 +430,20 @@ fn parse_claude_code_mirror_session(
             Err(_) => continue,
         };
 
-        if session_id.is_none() {
-            session_id = doc
-                .get("sessionId")
-                .and_then(Value::as_str)
-                .map(ToOwned::to_owned);
+        let doc_session_id = doc
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned);
+
+        if let Some(expected_session_id) = transcript_session_id.as_deref() {
+            if doc_session_id
+                .as_deref()
+                .is_some_and(|value| value != expected_session_id)
+            {
+                continue;
+            }
+        } else if session_id.is_none() {
+            session_id = doc_session_id.clone();
         }
         if cwd.is_none() {
             cwd = doc
@@ -488,9 +528,7 @@ fn parse_claude_code_mirror_session(
         }
     }
 
-    let Some(cli_session_id) =
-        session_id.or_else(|| infer_session_id_from_transcript_filename(path))
-    else {
+    let Some(cli_session_id) = session_id else {
         return Ok(None);
     };
     let Some(cwd) = cwd
@@ -875,6 +913,7 @@ fn merge_existing_code_session_doc_fields(existing_doc: Option<&Value>, doc: &mu
         "canonicalSessionId",
         "createdAt",
         "effort",
+        "isArchived",
         "permissionMode",
         "planPath",
         "title",
@@ -912,6 +951,13 @@ pub(crate) fn ensure_code_session_doc_for_cli_session(
     projects_dir: &Path,
     cli_session_id: &str,
 ) -> Result<Option<PathBuf>, AppError> {
+    if read_code_session_tombstones(profile_dir)?
+        .deleted_cli_session_ids
+        .contains(cli_session_id)
+    {
+        return Ok(None);
+    }
+
     let transcript_path = {
         let mut files = Vec::new();
         collect_claude_project_jsonl_paths(projects_dir, &mut files)?;
@@ -1027,7 +1073,15 @@ fn sync_claude_code_sessions_in_profile(
     profile_dir: &Path,
     projects_dir: &Path,
 ) -> Result<(), AppError> {
-    let mut sessions = collect_claude_code_mirror_sessions(projects_dir)?;
+    let tombstones = read_code_session_tombstones(profile_dir)?;
+    let mut sessions = collect_claude_code_mirror_sessions(projects_dir)?
+        .into_iter()
+        .filter(|session| {
+            !tombstones
+                .deleted_cli_session_ids
+                .contains(&session.cli_session_id)
+        })
+        .collect::<Vec<_>>();
     let mut existing_docs = HashMap::new();
     collect_existing_code_session_docs(&claude_code_sessions_dir(profile_dir), &mut existing_docs)?;
     for session in &mut sessions {
@@ -2992,6 +3046,44 @@ lo0: flags=8049<UP,LOOPBACK,RUNNING,MULTICAST> mtu 16384
     }
 
     #[test]
+    fn parse_claude_code_mirror_session_prefers_transcript_filename_session() {
+        let temp = tempdir().expect("tempdir");
+        let transcript_path = temp
+            .path()
+            .join("current-session-1234-5678-90ab-cdef12345678.jsonl");
+        fs::write(
+            &transcript_path,
+            concat!(
+                "{\"type\":\"user\",\"sessionId\":\"old-session-1234-5678-90ab-cdef12345678\",\"cwd\":\"/tmp/old-project\",\"timestamp\":\"2026-04-18T08:00:00Z\",\"message\":{\"role\":\"user\",\"content\":\"旧的上下文\"}}\n",
+                "{\"type\":\"custom-title\",\"sessionId\":\"old-session-1234-5678-90ab-cdef12345678\",\"customTitle\":\"旧标题\"}\n",
+                "{\"type\":\"assistant\",\"sessionId\":\"old-session-1234-5678-90ab-cdef12345678\",\"cwd\":\"/tmp/old-project\",\"timestamp\":\"2026-04-18T08:00:01Z\",\"message\":{\"role\":\"assistant\",\"model\":\"gpt-5.4\",\"content\":\"旧回复\"}}\n",
+                "{\"type\":\"custom-title\",\"sessionId\":\"current-session-1234-5678-90ab-cdef12345678\",\"customTitle\":\"新标题\"}\n",
+                "{\"type\":\"user\",\"sessionId\":\"current-session-1234-5678-90ab-cdef12345678\",\"cwd\":\"/tmp/current-project\",\"timestamp\":\"2026-04-18T08:10:00Z\",\"message\":{\"role\":\"user\",\"content\":\"请继续当前任务\"},\"permissionMode\":\"plan\",\"gitBranch\":\"claude/current-project\"}\n",
+                "{\"type\":\"assistant\",\"sessionId\":\"current-session-1234-5678-90ab-cdef12345678\",\"cwd\":\"/tmp/current-project\",\"timestamp\":\"2026-04-18T08:10:05Z\",\"message\":{\"role\":\"assistant\",\"model\":\"gpt-5.4\",\"content\":\"好的，我继续。\"}}\n"
+            ),
+        )
+        .expect("write transcript");
+
+        let session = parse_claude_code_mirror_session(&transcript_path, "claude-sonnet-4")
+            .expect("parse transcript")
+            .expect("session should exist");
+
+        assert_eq!(
+            session.cli_session_id,
+            "current-session-1234-5678-90ab-cdef12345678"
+        );
+        assert_eq!(
+            session.local_session_id,
+            derive_local_code_session_id("current-session-1234-5678-90ab-cdef12345678")
+        );
+        assert_eq!(session.cwd, "/tmp/current-project");
+        assert_eq!(session.origin_cwd, "/tmp/current-project");
+        assert_eq!(session.title.as_deref(), Some("新标题"));
+        assert_eq!(session.permission_mode, "plan");
+        assert_eq!(session.completed_turns, 1);
+    }
+
+    #[test]
     fn derive_claude_code_description_from_transcript_skips_compact_summary() {
         let temp = tempdir().expect("tempdir");
         let transcript_path = temp.path().join("cli-session-description.jsonl");
@@ -3316,6 +3408,118 @@ lo0: flags=8049<UP,LOOPBACK,RUNNING,MULTICAST> mtu 16384
             after.get("titleSource").and_then(Value::as_str),
             Some(LOCAL_SESSION_TITLE_SOURCE_AUTO)
         );
+    }
+
+    #[test]
+    fn sync_claude_code_sessions_skips_tombstoned_cli_sessions() {
+        let temp = tempdir().expect("tempdir");
+        let profile_dir = temp.path().join("profile");
+        let projects_dir = temp.path().join("projects").join("demo-project");
+        fs::create_dir_all(&projects_dir).expect("create projects dir");
+        write_json_file(
+            &resolve_code_session_tombstones_path(&profile_dir),
+            &json!({
+                "version": CODE_SESSION_TOMBSTONES_VERSION,
+                "deletedCliSessionIds": ["cli-session-456"]
+            }),
+        )
+        .expect("write tombstones");
+
+        fs::write(
+            projects_dir.join("cli-session-123.jsonl"),
+            concat!(
+                "{\"type\":\"user\",\"sessionId\":\"cli-session-123\",\"cwd\":\"/tmp/app\",\"timestamp\":\"2026-04-18T08:00:00Z\",\"message\":{\"role\":\"user\",\"content\":\"保留这个 session\"}}\n",
+                "{\"type\":\"assistant\",\"sessionId\":\"cli-session-123\",\"cwd\":\"/tmp/app\",\"timestamp\":\"2026-04-18T08:01:00Z\",\"message\":{\"role\":\"assistant\",\"model\":\"gpt-5.4\",\"content\":\"好的。\"}}\n"
+            ),
+        )
+        .expect("write kept transcript");
+        fs::write(
+            projects_dir.join("cli-session-456.jsonl"),
+            concat!(
+                "{\"type\":\"user\",\"sessionId\":\"cli-session-456\",\"cwd\":\"/tmp/app\",\"timestamp\":\"2026-04-18T09:00:00Z\",\"message\":{\"role\":\"user\",\"content\":\"不要再镜像这个 session\"}}\n",
+                "{\"type\":\"assistant\",\"sessionId\":\"cli-session-456\",\"cwd\":\"/tmp/app\",\"timestamp\":\"2026-04-18T09:01:00Z\",\"message\":{\"role\":\"assistant\",\"model\":\"gpt-5.4\",\"content\":\"明白。\"}}\n"
+            ),
+        )
+        .expect("write tombstoned transcript");
+
+        sync_claude_code_sessions_in_profile(&profile_dir, temp.path().join("projects").as_path())
+            .expect("sync sessions");
+
+        let bucket = profile_dir.join("claude-code-sessions");
+        let kept_local_id = derive_local_code_session_id("cli-session-123");
+        let tombstoned_local_id = derive_local_code_session_id("cli-session-456");
+        assert!(
+            bucket
+                .join(CLAUDE_CODE_SESSION_BUCKET_DIRNAME)
+                .join(format!("{kept_local_id}.json"))
+                .exists()
+                || bucket
+                    .join("org")
+                    .join(CLAUDE_CODE_SESSION_BUCKET_DIRNAME)
+                    .join(format!("{kept_local_id}.json"))
+                    .exists(),
+            "non-tombstoned session should still be mirrored"
+        );
+        assert!(
+            !bucket
+                .join(CLAUDE_CODE_SESSION_BUCKET_DIRNAME)
+                .join(format!("{tombstoned_local_id}.json"))
+                .exists()
+                && !bucket
+                    .join("org")
+                    .join(CLAUDE_CODE_SESSION_BUCKET_DIRNAME)
+                    .join(format!("{tombstoned_local_id}.json"))
+                    .exists(),
+            "tombstoned session should not be mirrored"
+        );
+
+        let registry = crate::session_links::read_registry_links(&profile_dir)
+            .expect("read session links registry");
+        assert_eq!(registry.len(), 1);
+        assert!(registry
+            .values()
+            .all(|record| record.cli_session_id.as_deref() != Some("cli-session-456")));
+    }
+
+    #[test]
+    fn sync_claude_code_sessions_preserves_archived_state() {
+        let temp = tempdir().expect("tempdir");
+        let profile_dir = temp.path().join("profile");
+        let projects_dir = temp.path().join("projects").join("demo-project");
+        let bucket = profile_dir
+            .join("claude-code-sessions")
+            .join("org")
+            .join(CLAUDE_CODE_SESSION_BUCKET_DIRNAME);
+        fs::create_dir_all(&bucket).expect("create mirrored bucket");
+        fs::create_dir_all(&projects_dir).expect("create projects dir");
+
+        let local_id = derive_local_code_session_id("cli-session-archived");
+        write_json_file(
+            &bucket.join(format!("{local_id}.json")),
+            &json!({
+                "sessionId": local_id,
+                "cliSessionId": "cli-session-archived",
+                "isArchived": true,
+                "title": "已归档 session"
+            }),
+        )
+        .expect("write existing archived session");
+
+        fs::write(
+            projects_dir.join("cli-session-archived.jsonl"),
+            concat!(
+                "{\"type\":\"user\",\"sessionId\":\"cli-session-archived\",\"cwd\":\"/tmp/plain-project\",\"timestamp\":\"2026-04-18T09:00:00Z\",\"message\":{\"role\":\"user\",\"content\":\"请保留归档状态\"}}\n",
+                "{\"type\":\"assistant\",\"sessionId\":\"cli-session-archived\",\"cwd\":\"/tmp/plain-project\",\"timestamp\":\"2026-04-18T09:01:00Z\",\"message\":{\"role\":\"assistant\",\"model\":\"gpt-5.4\",\"content\":\"好的。\"}}\n"
+            ),
+        )
+        .expect("write archived transcript");
+
+        sync_claude_code_sessions_in_profile(&profile_dir, temp.path().join("projects").as_path())
+            .expect("sync sessions");
+
+        let after = read_json_file::<Value>(&bucket.join(format!("{local_id}.json")))
+            .expect("read preserved archived session");
+        assert_eq!(after.get("isArchived").and_then(Value::as_bool), Some(true));
     }
 
     #[test]
