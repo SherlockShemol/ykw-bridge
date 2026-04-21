@@ -35,6 +35,8 @@ const LAUNCH_SHIM_MARKER: &str = "# ykw-bridge-claude-launch-shim";
 const LAUNCH_SHIM_BACKUP_SUFFIX: &str = ".ykw-bridge-original";
 const CLAUDE_CODE_SESSION_BUCKET_DIRNAME: &str = "00000000-0000-4000-8000-000000000001";
 const GIT_WORKTREES_FILENAME: &str = "git-worktrees.json";
+const CLAUDE_COMPACT_CONTINUATION_PREFIX: &str =
+    "This session is being continued from a previous conversation that ran out of context.";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -145,6 +147,13 @@ struct ClaudeCodeMirrorSession {
     source_branch: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+struct ExistingCodeSessionDoc {
+    path: PathBuf,
+    session_id: String,
+    doc: Value,
+}
+
 #[derive(Debug, Clone, Default)]
 struct ClaudeTranscriptRuntimeMeta {
     permission_mode: Option<String>,
@@ -228,6 +237,31 @@ fn derive_claude_message_text(message: &Value) -> Option<String> {
     })
 }
 
+fn is_hidden_claude_transcript_entry(doc: &Value) -> bool {
+    if doc
+        .get("isVisibleInTranscriptOnly")
+        .and_then(Value::as_bool)
+        == Some(true)
+        || doc.get("isCompactSummary").and_then(Value::as_bool) == Some(true)
+    {
+        return true;
+    }
+
+    let Some(message) = doc.get("message") else {
+        return false;
+    };
+    if message.get("role").and_then(Value::as_str) != Some("user") {
+        return false;
+    }
+
+    derive_claude_message_text(message)
+        .map(|text| {
+            text.trim_start()
+                .starts_with(CLAUDE_COMPACT_CONTINUATION_PREFIX)
+        })
+        .unwrap_or(false)
+}
+
 fn derive_path_basename(raw: &str) -> Option<String> {
     Path::new(raw)
         .file_name()
@@ -262,6 +296,15 @@ fn derive_local_code_session_id(cli_session_id: &str) -> String {
         bytes[14],
         bytes[15]
     )
+}
+
+fn normalize_claude_code_model(raw: &str) -> Option<String> {
+    let value = raw.trim();
+    if value.is_empty() || value == "<synthetic>" {
+        None
+    } else {
+        Some(value.to_string())
+    }
 }
 
 fn infer_worktree_meta(cwd: &str, git_branch: Option<&str>) -> Option<InferredWorktreeMeta> {
@@ -400,6 +443,10 @@ fn parse_claude_code_mirror_session(
                 .map(ToOwned::to_owned);
         }
 
+        if is_hidden_claude_transcript_entry(&doc) {
+            continue;
+        }
+
         let Some(message) = doc.get("message") else {
             continue;
         };
@@ -412,19 +459,20 @@ fn parse_claude_code_mirror_session(
             runtime.model = message
                 .get("model")
                 .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(ToOwned::to_owned)
+                .and_then(normalize_claude_code_model)
                 .or_else(|| {
                     doc.get("model")
                         .and_then(Value::as_str)
-                        .map(str::trim)
-                        .filter(|value| !value.is_empty())
-                        .map(ToOwned::to_owned)
+                        .and_then(normalize_claude_code_model)
                 });
         }
 
-        if role == "assistant" {
+        let assistant_model = message.get("model").and_then(Value::as_str);
+        let is_synthetic_assistant = assistant_model
+            .map(|model| normalize_claude_code_model(model).is_none())
+            .unwrap_or(false);
+
+        if role == "assistant" && !is_synthetic_assistant {
             runtime.completed_turns = runtime.completed_turns.saturating_add(1);
         }
 
@@ -730,6 +778,135 @@ fn read_existing_code_session_title_metadata(path: &Path) -> Option<(String, Opt
     ))
 }
 
+fn code_session_doc_rank(doc: &Value) -> (bool, bool, u64, u64) {
+    (
+        doc.get("canonicalSessionId")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_some(),
+        doc.get("model")
+            .and_then(Value::as_str)
+            .and_then(normalize_claude_code_model)
+            .is_some(),
+        doc.get("lastActivityAt")
+            .and_then(Value::as_u64)
+            .unwrap_or(0),
+        doc.get("createdAt").and_then(Value::as_u64).unwrap_or(0),
+    )
+}
+
+fn collect_existing_code_session_docs(
+    dir: &Path,
+    out: &mut HashMap<String, ExistingCodeSessionDoc>,
+) -> Result<(), AppError> {
+    if !dir.exists() {
+        return Ok(());
+    }
+
+    for entry in fs::read_dir(dir).map_err(|e| AppError::io(dir, e))? {
+        let entry = entry.map_err(|e| AppError::io(dir, e))?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_existing_code_session_docs(&path, out)?;
+            continue;
+        }
+        if path.extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+
+        let doc = match read_json_file::<Value>(&path) {
+            Ok(doc) => doc,
+            Err(_) => continue,
+        };
+        let Some(cli_session_id) = doc
+            .get("cliSessionId")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+        else {
+            continue;
+        };
+        let Some(session_id) = doc
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+            .or_else(|| {
+                path.file_stem()
+                    .and_then(|value| value.to_str())
+                    .map(ToOwned::to_owned)
+            })
+        else {
+            continue;
+        };
+
+        let candidate = ExistingCodeSessionDoc {
+            path,
+            session_id,
+            doc,
+        };
+        let should_replace = out
+            .get(&cli_session_id)
+            .map(|current| {
+                code_session_doc_rank(&candidate.doc) > code_session_doc_rank(&current.doc)
+            })
+            .unwrap_or(true);
+        if should_replace {
+            out.insert(cli_session_id, candidate);
+        }
+    }
+
+    Ok(())
+}
+
+fn merge_existing_code_session_doc_fields(existing_doc: Option<&Value>, doc: &mut Value) {
+    let Some(existing_doc) = existing_doc else {
+        return;
+    };
+    let Some(obj) = doc.as_object_mut() else {
+        return;
+    };
+
+    for key in [
+        "sessionId",
+        "canonicalSessionId",
+        "createdAt",
+        "effort",
+        "permissionMode",
+        "planPath",
+        "title",
+        "titleSource",
+    ] {
+        if let Some(value) = existing_doc.get(key) {
+            obj.insert(key.to_string(), value.clone());
+        }
+    }
+
+    if let Some(model) = existing_doc
+        .get("model")
+        .and_then(Value::as_str)
+        .and_then(normalize_claude_code_model)
+    {
+        obj.insert("model".to_string(), Value::String(model));
+    }
+
+    if let Some(existing_turns) = existing_doc.get("completedTurns").and_then(Value::as_u64) {
+        let mirrored_turns = obj
+            .get("completedTurns")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        if existing_turns > mirrored_turns {
+            obj.insert(
+                "completedTurns".to_string(),
+                Value::Number(serde_json::Number::from(existing_turns)),
+            );
+        }
+    }
+}
+
 pub(crate) fn ensure_code_session_doc_for_cli_session(
     profile_dir: &Path,
     projects_dir: &Path,
@@ -750,13 +927,24 @@ pub(crate) fn ensure_code_session_doc_for_cli_session(
     };
 
     let default_model = default_claude_code_session_model();
-    let Some(session) = parse_claude_code_mirror_session(&transcript_path, &default_model)? else {
+    let Some(mut session) = parse_claude_code_mirror_session(&transcript_path, &default_model)?
+    else {
         return Ok(None);
     };
 
+    let mut existing_docs = HashMap::new();
+    collect_existing_code_session_docs(&claude_code_sessions_dir(profile_dir), &mut existing_docs)?;
+    let existing_doc = existing_docs.get(cli_session_id);
+    if let Some(existing_doc) = existing_doc {
+        session.local_session_id = existing_doc.session_id.clone();
+    }
+
     let bucket = ensure_claude_code_session_bucket(profile_dir)?;
-    let path = bucket.join(format!("{}.json", session.local_session_id));
+    let path = existing_doc
+        .map(|doc| doc.path.clone())
+        .unwrap_or_else(|| bucket.join(format!("{}.json", session.local_session_id)));
     let mut doc = build_claude_code_session_doc(&session);
+    merge_existing_code_session_doc_fields(existing_doc.map(|doc| &doc.doc), &mut doc);
     let existing_title_metadata = read_existing_code_session_title_metadata(&path);
     preserve_existing_code_session_title(existing_title_metadata.as_ref(), &mut doc);
     write_json_file(&path, &doc)?;
@@ -839,7 +1027,14 @@ fn sync_claude_code_sessions_in_profile(
     profile_dir: &Path,
     projects_dir: &Path,
 ) -> Result<(), AppError> {
-    let sessions = collect_claude_code_mirror_sessions(projects_dir)?;
+    let mut sessions = collect_claude_code_mirror_sessions(projects_dir)?;
+    let mut existing_docs = HashMap::new();
+    collect_existing_code_session_docs(&claude_code_sessions_dir(profile_dir), &mut existing_docs)?;
+    for session in &mut sessions {
+        if let Some(existing_doc) = existing_docs.get(&session.cli_session_id) {
+            session.local_session_id = existing_doc.session_id.clone();
+        }
+    }
     let mut existing_title_metadata = HashMap::new();
     collect_existing_code_session_title_metadata(
         &claude_code_sessions_dir(profile_dir),
@@ -850,6 +1045,12 @@ fn sync_claude_code_sessions_in_profile(
     for session in &sessions {
         let path = bucket.join(format!("{}.json", session.local_session_id));
         let mut doc = build_claude_code_session_doc(session);
+        merge_existing_code_session_doc_fields(
+            existing_docs
+                .get(&session.cli_session_id)
+                .map(|doc| &doc.doc),
+            &mut doc,
+        );
         preserve_existing_code_session_title(
             existing_title_metadata.get(&session.local_session_id),
             &mut doc,
@@ -1030,6 +1231,10 @@ pub(crate) fn derive_claude_code_description_from_transcript(
         let Ok(doc) = serde_json::from_str::<Value>(trimmed) else {
             continue;
         };
+
+        if is_hidden_claude_transcript_entry(&doc) {
+            continue;
+        }
 
         let event_type = doc.get("type").and_then(Value::as_str);
         if event_type == Some("user") {
@@ -2739,6 +2944,151 @@ lo0: flags=8049<UP,LOOPBACK,RUNNING,MULTICAST> mtu 16384
         assert_eq!(
             first.len(),
             "local_12345678-1234-1234-1234-123456789abc".len()
+        );
+    }
+
+    #[test]
+    fn parse_claude_code_mirror_session_ignores_synthetic_model() {
+        let temp = tempdir().expect("tempdir");
+        let transcript_path = temp.path().join("cli-session-123.jsonl");
+        fs::write(
+            &transcript_path,
+            concat!(
+                "{\"type\":\"user\",\"sessionId\":\"cli-session-123\",\"cwd\":\"/tmp/project\",\"timestamp\":\"2026-04-18T08:00:00Z\",\"message\":{\"role\":\"user\",\"content\":\"请帮我排查 compact\"}}\n",
+                "{\"type\":\"assistant\",\"sessionId\":\"cli-session-123\",\"cwd\":\"/tmp/project\",\"timestamp\":\"2026-04-18T08:01:00Z\",\"message\":{\"role\":\"assistant\",\"model\":\"<synthetic>\",\"content\":\"No response requested.\"}}\n",
+                "{\"type\":\"assistant\",\"sessionId\":\"cli-session-123\",\"cwd\":\"/tmp/project\",\"timestamp\":\"2026-04-18T08:02:00Z\",\"message\":{\"role\":\"assistant\",\"model\":\"gpt-5.4\",\"content\":\"我先看一下日志。\"}}\n"
+            ),
+        )
+        .expect("write transcript");
+
+        let session = parse_claude_code_mirror_session(&transcript_path, "claude-sonnet-4")
+            .expect("parse transcript")
+            .expect("session should exist");
+
+        assert_eq!(session.model, "gpt-5.4");
+        assert_eq!(session.completed_turns, 1);
+    }
+
+    #[test]
+    fn parse_claude_code_mirror_session_skips_compact_summary_for_title() {
+        let temp = tempdir().expect("tempdir");
+        let transcript_path = temp.path().join("cli-session-compact.jsonl");
+        fs::write(
+            &transcript_path,
+            concat!(
+                "{\"type\":\"user\",\"sessionId\":\"cli-session-compact\",\"cwd\":\"/tmp/project\",\"timestamp\":\"2026-04-18T08:00:00Z\",\"message\":{\"role\":\"user\",\"content\":\"This session is being continued from a previous conversation that ran out of context.\\n\\nSummary:\\n- earlier context\"},\"isVisibleInTranscriptOnly\":true,\"isCompactSummary\":true}\n",
+                "{\"type\":\"user\",\"sessionId\":\"cli-session-compact\",\"cwd\":\"/tmp/project\",\"timestamp\":\"2026-04-18T08:00:01Z\",\"message\":{\"role\":\"user\",\"content\":\"请帮我继续排查 compact\"}}\n",
+                "{\"type\":\"assistant\",\"sessionId\":\"cli-session-compact\",\"cwd\":\"/tmp/project\",\"timestamp\":\"2026-04-18T08:00:02Z\",\"message\":{\"role\":\"assistant\",\"model\":\"gpt-5.4\",\"content\":\"我先看一下日志。\"}}\n"
+            ),
+        )
+        .expect("write transcript");
+
+        let session = parse_claude_code_mirror_session(&transcript_path, "claude-sonnet-4")
+            .expect("parse transcript")
+            .expect("session should exist");
+
+        assert_eq!(session.title.as_deref(), Some("请帮我继续排查 compact"));
+        assert_eq!(session.completed_turns, 1);
+    }
+
+    #[test]
+    fn derive_claude_code_description_from_transcript_skips_compact_summary() {
+        let temp = tempdir().expect("tempdir");
+        let transcript_path = temp.path().join("cli-session-description.jsonl");
+        fs::write(
+            &transcript_path,
+            concat!(
+                "{\"type\":\"user\",\"sessionId\":\"cli-session-description\",\"cwd\":\"/tmp/project\",\"timestamp\":\"2026-04-18T08:00:00Z\",\"message\":{\"role\":\"user\",\"content\":\"This session is being continued from a previous conversation that ran out of context.\\n\\nSummary:\\n- earlier context\"},\"isVisibleInTranscriptOnly\":true,\"isCompactSummary\":true}\n",
+                "{\"type\":\"user\",\"sessionId\":\"cli-session-description\",\"cwd\":\"/tmp/project\",\"timestamp\":\"2026-04-18T08:00:01Z\",\"message\":{\"role\":\"user\",\"content\":\"请帮我继续排查 compact\"}}\n"
+            ),
+        )
+        .expect("write transcript");
+
+        let description = derive_claude_code_description_from_transcript(&transcript_path)
+            .expect("derive description");
+
+        assert_eq!(description.as_deref(), Some("请帮我继续排查 compact"));
+    }
+
+    #[test]
+    fn ensure_code_session_doc_for_cli_session_reuses_existing_live_doc() {
+        let temp = tempdir().expect("tempdir");
+        let profile_dir = temp.path().join("profile");
+        let bucket = profile_dir
+            .join("claude-code-sessions")
+            .join("org")
+            .join(CLAUDE_CODE_SESSION_BUCKET_DIRNAME);
+        let projects_dir = temp.path().join("projects").join("demo-project");
+        fs::create_dir_all(&bucket).expect("create bucket");
+        fs::create_dir_all(&projects_dir).expect("create projects dir");
+
+        let existing_path = bucket.join("local_live.json");
+        write_json_file(
+            &existing_path,
+            &json!({
+                "sessionId": "local_live",
+                "cliSessionId": "cli-session-456",
+                "cwd": "/tmp/project/.claude/worktrees/hopeful-hugle",
+                "originCwd": "/tmp/project",
+                "createdAt": 100,
+                "lastActivityAt": 200,
+                "model": "gpt-5.4",
+                "effort": "high",
+                "completedTurns": 6,
+                "permissionMode": "acceptEdits",
+                "title": "排查 compact (fork)",
+                "canonicalSessionId": "canonical-live"
+            }),
+        )
+        .expect("write existing live doc");
+
+        fs::write(
+            projects_dir.join("cli-session-456.jsonl"),
+            concat!(
+                "{\"type\":\"user\",\"sessionId\":\"cli-session-456\",\"cwd\":\"/tmp/project/.claude/worktrees/hopeful-hugle\",\"timestamp\":\"2026-04-18T08:00:00Z\",\"permissionMode\":\"default\",\"gitBranch\":\"claude/hopeful-hugle\",\"message\":{\"role\":\"user\",\"content\":\"请帮我排查 compact\"}}\n",
+                "{\"type\":\"assistant\",\"sessionId\":\"cli-session-456\",\"cwd\":\"/tmp/project/.claude/worktrees/hopeful-hugle\",\"timestamp\":\"2026-04-18T08:01:00Z\",\"message\":{\"role\":\"assistant\",\"model\":\"<synthetic>\",\"content\":\"No response requested.\"}}\n",
+                "{\"type\":\"assistant\",\"sessionId\":\"cli-session-456\",\"cwd\":\"/tmp/project/.claude/worktrees/hopeful-hugle\",\"timestamp\":\"2026-04-18T08:02:00Z\",\"message\":{\"role\":\"assistant\",\"model\":\"gpt-5.4\",\"content\":\"我先看一下日志。\"}}\n"
+            ),
+        )
+        .expect("write transcript");
+
+        let mirrored_path = ensure_code_session_doc_for_cli_session(
+            &profile_dir,
+            temp.path().join("projects").as_path(),
+            "cli-session-456",
+        )
+        .expect("ensure mirrored doc")
+        .expect("mirrored path should exist");
+
+        assert_eq!(mirrored_path, existing_path);
+        let after = read_json_file::<Value>(&existing_path).expect("read mirrored doc");
+        assert_eq!(
+            after.get("sessionId").and_then(Value::as_str),
+            Some("local_live")
+        );
+        assert_eq!(
+            after.get("cliSessionId").and_then(Value::as_str),
+            Some("cli-session-456")
+        );
+        assert_eq!(after.get("model").and_then(Value::as_str), Some("gpt-5.4"));
+        assert_eq!(after.get("effort").and_then(Value::as_str), Some("high"));
+        assert_eq!(after.get("completedTurns").and_then(Value::as_u64), Some(6));
+        assert_eq!(
+            after.get("canonicalSessionId").and_then(Value::as_str),
+            Some("canonical-live")
+        );
+        assert_eq!(
+            after.get("title").and_then(Value::as_str),
+            Some("排查 compact (fork)")
+        );
+        assert!(
+            !bucket
+                .join(format!(
+                    "{}.json",
+                    derive_local_code_session_id("cli-session-456")
+                ))
+                .exists(),
+            "should not create a second mirrored doc for the same cli session"
         );
     }
 

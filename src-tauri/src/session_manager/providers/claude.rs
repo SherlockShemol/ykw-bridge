@@ -13,6 +13,8 @@ use super::utils::{
 };
 
 const PROVIDER_ID: &str = "claude";
+const COMPACT_CONTINUATION_PREFIX: &str =
+    "This session is being continued from a previous conversation that ran out of context.";
 
 pub fn scan_sessions() -> Vec<SessionMeta> {
     let root = get_claude_config_dir().join("projects");
@@ -44,7 +46,7 @@ pub fn load_messages(path: &Path) -> Result<Vec<SessionMessage>, String> {
             Err(_) => continue,
         };
 
-        if value.get("isMeta").and_then(Value::as_bool) == Some(true) {
+        if should_skip_claude_transcript_entry(&value) {
             continue;
         }
 
@@ -162,7 +164,7 @@ fn parse_session(path: &Path) -> Option<SessionMeta> {
                     .and_then(|m| m.get("role"))
                     .and_then(Value::as_str)
                     == Some("user");
-            if is_user {
+            if is_user && !is_hidden_claude_transcript_message(&value) {
                 if let Some(message) = value.get("message") {
                     let text = message.get("content").map(extract_text).unwrap_or_default();
                     let trimmed = text.trim();
@@ -208,7 +210,7 @@ fn parse_session(path: &Path) -> Option<SessionMeta> {
                 .filter(|s| !s.is_empty());
         }
         if summary.is_none() {
-            if value.get("isMeta").and_then(Value::as_bool) == Some(true) {
+            if should_skip_claude_transcript_entry(&value) {
                 continue;
             }
             if let Some(message) = value.get("message") {
@@ -250,6 +252,35 @@ fn parse_session(path: &Path) -> Option<SessionMeta> {
         source_path: Some(path.to_string_lossy().to_string()),
         resume_command: Some(format!("claude --resume {session_id}")),
     })
+}
+
+fn should_skip_claude_transcript_entry(value: &Value) -> bool {
+    value.get("isMeta").and_then(Value::as_bool) == Some(true)
+        || is_hidden_claude_transcript_message(value)
+}
+
+fn is_hidden_claude_transcript_message(value: &Value) -> bool {
+    if value
+        .get("isVisibleInTranscriptOnly")
+        .and_then(Value::as_bool)
+        == Some(true)
+        || value.get("isCompactSummary").and_then(Value::as_bool) == Some(true)
+    {
+        return true;
+    }
+
+    let Some(message) = value.get("message") else {
+        return false;
+    };
+    if message.get("role").and_then(Value::as_str) != Some("user") {
+        return false;
+    }
+
+    message
+        .get("content")
+        .map(extract_text)
+        .map(|text| text.trim_start().starts_with(COMPACT_CONTINUATION_PREFIX))
+        .unwrap_or(false)
 }
 
 fn is_agent_session(path: &Path) -> bool {
@@ -386,6 +417,25 @@ mod tests {
     }
 
     #[test]
+    fn load_messages_skips_transcript_only_compact_summary() {
+        let temp = tempdir().expect("tempdir");
+        let path = temp.path().join("session.jsonl");
+        std::fs::write(
+            &path,
+            concat!(
+                "{\"type\":\"user\",\"isVisibleInTranscriptOnly\":true,\"isCompactSummary\":true,\"message\":{\"role\":\"user\",\"content\":\"This session is being continued from a previous conversation that ran out of context.\\n\\nSummary:\\n- earlier context\"},\"timestamp\":\"2026-03-06T10:00:00Z\"}\n",
+                "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"Please continue\"},\"timestamp\":\"2026-03-06T10:00:01Z\"}\n",
+            ),
+        )
+        .expect("write");
+
+        let msgs = load_messages(&path).expect("load");
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].role, "user");
+        assert_eq!(msgs[0].content, "Please continue");
+    }
+
+    #[test]
     fn parse_session_uses_first_user_message_as_title() {
         let temp = tempdir().expect("tempdir");
         let path = temp.path().join("session-abc.jsonl");
@@ -496,5 +546,42 @@ mod tests {
 
         let meta = parse_session(&path).unwrap();
         assert_eq!(meta.title.as_deref(), Some("帮我看看工作区的改动"));
+    }
+
+    #[test]
+    fn parse_session_skips_compact_summary_for_title() {
+        let temp = tempdir().expect("tempdir");
+        let path = temp.path().join("session-compact-title.jsonl");
+        std::fs::write(
+            &path,
+            concat!(
+                "{\"sessionId\":\"session-compact-title\",\"cwd\":\"/tmp/project\",\"timestamp\":\"2026-03-06T10:00:00Z\"}\n",
+                "{\"type\":\"user\",\"isVisibleInTranscriptOnly\":true,\"isCompactSummary\":true,\"message\":{\"role\":\"user\",\"content\":\"This session is being continued from a previous conversation that ran out of context.\\n\\nSummary:\\n- earlier context\"},\"sessionId\":\"session-compact-title\",\"timestamp\":\"2026-03-06T10:00:01Z\"}\n",
+                "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"帮我继续排查 compact\"},\"sessionId\":\"session-compact-title\",\"timestamp\":\"2026-03-06T10:00:02Z\"}\n",
+            ),
+        )
+        .expect("write");
+
+        let meta = parse_session(&path).unwrap();
+        assert_eq!(meta.title.as_deref(), Some("帮我继续排查 compact"));
+    }
+
+    #[test]
+    fn parse_session_skips_compact_summary_for_summary() {
+        let temp = tempdir().expect("tempdir");
+        let path = temp.path().join("session-compact-summary.jsonl");
+        std::fs::write(
+            &path,
+            concat!(
+                "{\"sessionId\":\"session-compact-summary\",\"cwd\":\"/tmp/project\",\"timestamp\":\"2026-03-06T10:00:00Z\"}\n",
+                "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"帮我继续排查 compact\"},\"sessionId\":\"session-compact-summary\",\"timestamp\":\"2026-03-06T10:00:01Z\"}\n",
+                "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"我先看一下日志。\"},\"timestamp\":\"2026-03-06T10:00:02Z\"}\n",
+                "{\"type\":\"user\",\"isVisibleInTranscriptOnly\":true,\"isCompactSummary\":true,\"message\":{\"role\":\"user\",\"content\":\"This session is being continued from a previous conversation that ran out of context.\\n\\nSummary:\\n- earlier context\"},\"sessionId\":\"session-compact-summary\",\"timestamp\":\"2026-03-06T10:00:03Z\"}\n",
+            ),
+        )
+        .expect("write");
+
+        let meta = parse_session(&path).unwrap();
+        assert_eq!(meta.summary.as_deref(), Some("我先看一下日志。"));
     }
 }
