@@ -238,10 +238,10 @@
     "tabProxy": "ルーティング",
     "authCenter": {
       "title": "OAuth 認証センター",
-      "description": "Claude Code で他のサブスクリプションをご利用いただけます。コンプライアンスリスクにご注意ください。",
+      "description": "Claude ワークフローで他のサブスクリプションをご利用いただけます。コンプライアンスリスクにご注意ください。",
       "beta": "Beta",
       "copilotDescription": "GitHub Copilot アカウントを管理します",
-      "codexOauthDescription": "ChatGPT アカウントを管理します"
+      "codexOauthDescription": "Claude プロバイダーで使う ChatGPT アカウントを管理します"
     },
     "advanced": {
       "configDir": {
@@ -723,7 +723,7 @@
     "configContent": "設定内容",
     "officialNoApiKey": "公式ログインは API Key 不要です。そのまま保存できます",
     "codexOfficialNoApiKey": "公式は API Key 不要です。そのまま保存してください",
-    "codexApiKeyAutoFill": "ここに入力すれば auth.json も自動で埋まります",
+    "codexApiKeyAutoFill": "ここに入力すれば下の Claude プロバイダー設定も自動で埋まります",
     "apiKeyAutoFill": "ここに入力すれば下の設定も自動で埋まります",
     "cnOfficialApiKeyHint": "💡 API Key のみ入力すれば OK。エンドポイントはプリセット済みです",
     "aggregatorApiKeyHint": "💡 API Key のみ入力すれば OK。エンドポイントはプリセット済みです",

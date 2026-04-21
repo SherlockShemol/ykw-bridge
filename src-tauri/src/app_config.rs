@@ -884,6 +884,24 @@ mod tests {
     }
 
     #[test]
+    fn app_type_all_only_contains_claude_family() {
+        assert_eq!(
+            AppType::all().collect::<Vec<_>>(),
+            vec![AppType::Claude, AppType::ClaudeDesktop]
+        );
+    }
+
+    #[test]
+    fn app_type_rejects_legacy_codex_app_id() {
+        let err = AppType::from_str("codex").expect_err("codex should be unsupported");
+        let message = err.to_string();
+        assert!(
+            message.contains("claude") && message.contains("claude_desktop"),
+            "error should point users to the only supported app ids"
+        );
+    }
+
+    #[test]
     #[serial]
     fn auto_imports_existing_prompt_when_config_missing() {
         let _home = TempHome::new();

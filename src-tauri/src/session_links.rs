@@ -6,6 +6,7 @@ use crate::error::AppError;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -16,6 +17,7 @@ const SESSION_LINKS_FILENAME: &str = "session-links.json";
 const SESSION_LINKS_VERSION: u32 = 1;
 const LOCAL_AGENT_MODE_SESSIONS_DIRNAME: &str = "local-agent-mode-sessions";
 const CLAUDE_CODE_SESSIONS_DIRNAME: &str = "claude-code-sessions";
+const LOCAL_SESSION_TITLE_MAX_CHARS: usize = 80;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -99,6 +101,22 @@ pub struct CodeSessionLinkRefresh {
     pub last_seen_at: u64,
 }
 
+#[derive(Debug, Clone)]
+struct LocalSessionMatch {
+    kind: LocalSessionKind,
+    path: PathBuf,
+    local_session_id: String,
+    cli_session_id: Option<String>,
+    canonical_session_id: Option<String>,
+    description: Option<String>,
+    has_title: bool,
+    is_archived: bool,
+    created_at: u64,
+    last_activity_at: u64,
+    matches_remote: bool,
+    matches_prompt_hash: bool,
+}
+
 pub fn build_identity_input(
     remote_session_id: String,
     initial_prompt: Option<String>,
@@ -162,49 +180,20 @@ pub fn resolve_title_target(
     identity: &SessionLinkIdentityInput,
 ) -> Result<Option<ResolvedSessionLink>, AppError> {
     let mut registry = read_registry(profile_dir)?;
-    let remote_session_id = normalize_value(&identity.remote_session_id);
-
-    if let Some((canonical_id, record)) = registry
-        .links
-        .iter()
-        .find(|(_, record)| {
-            matches_identity(
-                record,
-                remote_session_id.as_deref(),
-                identity.initial_prompt_hash.as_deref(),
-            )
-        })
-        .map(|(canonical_id, record)| (canonical_id.clone(), record.clone()))
-    {
-        if let Some(mut resolved) = resolve_existing_link(profile_dir, projects_dir, &record)? {
-            refresh_record(&mut resolved.record, identity, &resolved.path);
-            registry.links.insert(canonical_id, resolved.record.clone());
-            write_registry(profile_dir, &registry)?;
-            annotate_session_doc(&resolved.path, &resolved.record.canonical_session_id)?;
-            return Ok(Some(resolved));
-        }
-    }
-
-    if let Some(resolved) = bootstrap_cowork(profile_dir, identity)? {
-        annotate_session_doc(&resolved.path, &resolved.record.canonical_session_id)?;
-        registry.links.insert(
-            resolved.record.canonical_session_id.clone(),
-            resolved.record.clone(),
-        );
+    if let Some(local_match) = find_best_local_target(profile_dir, projects_dir, identity)? {
+        let record = select_or_build_record(&registry, identity, &local_match);
+        prune_conflicting_records(&mut registry, &record, identity, &local_match);
+        registry
+            .links
+            .insert(record.canonical_session_id.clone(), record.clone());
         write_registry(profile_dir, &registry)?;
-        return Ok(Some(resolved));
-    }
-
-    if let Some(projects_dir) = projects_dir {
-        if let Some(resolved) = bootstrap_code(profile_dir, projects_dir, identity)? {
-            annotate_session_doc(&resolved.path, &resolved.record.canonical_session_id)?;
-            registry.links.insert(
-                resolved.record.canonical_session_id.clone(),
-                resolved.record.clone(),
-            );
-            write_registry(profile_dir, &registry)?;
-            return Ok(Some(resolved));
-        }
+        annotate_session_doc(&local_match.path, &record.canonical_session_id)?;
+        return Ok(Some(ResolvedSessionLink {
+            record,
+            path: local_match.path,
+            description: local_match.description,
+            has_title: local_match.has_title,
+        }));
     }
 
     Ok(None)
@@ -309,130 +298,36 @@ fn write_registry(profile_dir: &Path, registry: &SessionLinksRegistry) -> Result
     write_json_file(&registry_path(profile_dir), registry)
 }
 
-fn matches_identity(
-    record: &SessionLinkRecord,
-    remote_session_id: Option<&str>,
-    prompt_hash: Option<&str>,
-) -> bool {
-    record
-        .remote_session_id
-        .as_deref()
-        .zip(remote_session_id)
-        .map(|(left, right)| left == right)
-        .unwrap_or(false)
-        || record
-            .initial_prompt_hash
-            .as_deref()
-            .zip(prompt_hash)
-            .map(|(left, right)| left == right)
-            .unwrap_or(false)
-}
-
-fn resolve_existing_link(
+fn find_best_local_target(
     profile_dir: &Path,
     projects_dir: Option<&Path>,
-    record: &SessionLinkRecord,
-) -> Result<Option<ResolvedSessionLink>, AppError> {
-    match record.kind {
-        LocalSessionKind::Cowork => resolve_cowork_target(profile_dir, record),
-        LocalSessionKind::Code => resolve_code_target(profile_dir, projects_dir, record),
-    }
+    identity: &SessionLinkIdentityInput,
+) -> Result<Option<LocalSessionMatch>, AppError> {
+    let cowork = find_best_cowork_target(profile_dir, identity)?;
+    let code = match projects_dir {
+        Some(projects_dir) => find_best_code_target(profile_dir, projects_dir, identity)?,
+        None => None,
+    };
+
+    Ok(match (cowork, code) {
+        (Some(left), Some(right)) => Some(select_better_local_match(left, right)),
+        (Some(left), None) => Some(left),
+        (None, Some(right)) => Some(right),
+        (None, None) => None,
+    })
 }
 
-fn resolve_cowork_target(
-    profile_dir: &Path,
-    record: &SessionLinkRecord,
-) -> Result<Option<ResolvedSessionLink>, AppError> {
-    let mut session_paths = Vec::new();
-    collect_local_session_json_paths(
-        &profile_dir.join(LOCAL_AGENT_MODE_SESSIONS_DIRNAME),
-        &mut session_paths,
-    )?;
-    for path in session_paths {
-        let doc = match read_json_file::<Value>(&path) {
-            Ok(doc) => doc,
-            Err(_) => continue,
-        };
-        let local_session_id = session_doc_id(&doc, &path);
-        let matched = session_doc_canonical_id(&doc) == Some(record.canonical_session_id.as_str())
-            || record.local_session_path.as_deref() == Some(path.display().to_string().as_str())
-            || record.local_session_id.as_deref() == Some(local_session_id.as_str())
-            || record.remote_session_id.as_deref() == Some(local_session_id.as_str());
-        if !matched {
-            continue;
-        }
-        return Ok(Some(ResolvedSessionLink {
-            record: record.clone(),
-            path,
-            description: derive_local_session_description(&doc),
-            has_title: session_doc_has_title(&doc),
-        }));
-    }
-    Ok(None)
-}
-
-fn resolve_code_target(
-    profile_dir: &Path,
-    projects_dir: Option<&Path>,
-    record: &SessionLinkRecord,
-) -> Result<Option<ResolvedSessionLink>, AppError> {
-    let mut session_paths = Vec::new();
-    collect_local_session_json_paths(
-        &profile_dir.join(CLAUDE_CODE_SESSIONS_DIRNAME),
-        &mut session_paths,
-    )?;
-    let transcript_index = collect_transcript_index(projects_dir)?;
-
-    for path in session_paths {
-        let doc = match read_json_file::<Value>(&path) {
-            Ok(doc) => doc,
-            Err(_) => continue,
-        };
-        let local_session_id = session_doc_id(&doc, &path);
-        let cli_session_id = doc.get("cliSessionId").and_then(Value::as_str);
-        let matched = session_doc_canonical_id(&doc) == Some(record.canonical_session_id.as_str())
-            || record.local_session_path.as_deref() == Some(path.display().to_string().as_str())
-            || record.local_session_id.as_deref() == Some(local_session_id.as_str())
-            || record
-                .cli_session_id
-                .as_deref()
-                .zip(cli_session_id)
-                .map(|(left, right)| left == right)
-                .unwrap_or(false)
-            || record
-                .remote_session_id
-                .as_deref()
-                .zip(cli_session_id)
-                .map(|(left, right)| left == right)
-                .unwrap_or(false);
-        if !matched {
-            continue;
-        }
-        let description = derive_local_session_description(&doc).or_else(|| {
-            derive_code_description(&doc, &transcript_index)
-                .ok()
-                .flatten()
-        });
-        return Ok(Some(ResolvedSessionLink {
-            record: record.clone(),
-            path,
-            description,
-            has_title: session_doc_has_title(&doc),
-        }));
-    }
-    Ok(None)
-}
-
-fn bootstrap_cowork(
+fn find_best_cowork_target(
     profile_dir: &Path,
     identity: &SessionLinkIdentityInput,
-) -> Result<Option<ResolvedSessionLink>, AppError> {
+) -> Result<Option<LocalSessionMatch>, AppError> {
     let mut session_paths = Vec::new();
     collect_local_session_json_paths(
         &profile_dir.join(LOCAL_AGENT_MODE_SESSIONS_DIRNAME),
         &mut session_paths,
     )?;
     let remote_session_id = normalize_value(&identity.remote_session_id);
+    let mut best = None;
 
     for path in session_paths {
         let doc = match read_json_file::<Value>(&path) {
@@ -446,28 +341,43 @@ fn bootstrap_cowork(
         if !matches_remote && !matches_prompt_hash {
             continue;
         }
-        let record = build_record(
-            LocalSessionKind::Cowork,
-            identity,
-            Some(local_session_id),
-            None,
-            Some(path.clone()),
-        );
-        return Ok(Some(ResolvedSessionLink {
-            record,
+
+        let candidate = LocalSessionMatch {
+            kind: LocalSessionKind::Cowork,
             path,
+            local_session_id,
+            cli_session_id: None,
+            canonical_session_id: session_doc_canonical_id(&doc).map(str::to_string),
             description: derive_local_session_description(&doc),
             has_title: session_doc_has_title(&doc),
-        }));
+            is_archived: session_doc_is_archived(&doc),
+            created_at: session_doc_created_at_ms(&doc),
+            last_activity_at: session_doc_last_activity_ms(&doc),
+            matches_remote,
+            matches_prompt_hash,
+        };
+        best = Some(match best {
+            Some(current) => select_better_local_match(current, candidate),
+            None => candidate,
+        });
     }
-    Ok(None)
+
+    Ok(best)
 }
 
-fn bootstrap_code(
+fn find_best_code_target(
     profile_dir: &Path,
     projects_dir: &Path,
     identity: &SessionLinkIdentityInput,
-) -> Result<Option<ResolvedSessionLink>, AppError> {
+) -> Result<Option<LocalSessionMatch>, AppError> {
+    if let Some(remote_session_id) = normalize_value(&identity.remote_session_id) {
+        let _ = crate::claude_desktop_config::ensure_code_session_doc_for_cli_session(
+            profile_dir,
+            projects_dir,
+            &remote_session_id,
+        )?;
+    }
+
     let mut session_paths = Vec::new();
     collect_local_session_json_paths(
         &profile_dir.join(CLAUDE_CODE_SESSIONS_DIRNAME),
@@ -475,6 +385,7 @@ fn bootstrap_code(
     )?;
     let transcript_index = collect_transcript_index(Some(projects_dir))?;
     let remote_session_id = normalize_value(&identity.remote_session_id);
+    let mut best = None;
 
     for path in session_paths {
         let doc = match read_json_file::<Value>(&path) {
@@ -482,10 +393,7 @@ fn bootstrap_code(
             Err(_) => continue,
         };
         let local_session_id = session_doc_id(&doc, &path);
-        let cli_session_id = doc
-            .get("cliSessionId")
-            .and_then(Value::as_str)
-            .map(str::to_string);
+        let cli_session_id = doc.get("cliSessionId").and_then(Value::as_str);
         let description = derive_local_session_description(&doc).or_else(|| {
             derive_code_description(&doc, &transcript_index)
                 .ok()
@@ -493,7 +401,7 @@ fn bootstrap_code(
         });
         let matches_remote = remote_session_id
             .as_deref()
-            .map(|value| Some(value) == cli_session_id.as_deref() || value == local_session_id)
+            .map(|value| Some(value) == cli_session_id || value == local_session_id)
             .unwrap_or(false);
         let matches_prompt_hash = identity
             .initial_prompt_hash
@@ -504,21 +412,212 @@ fn bootstrap_code(
         if !matches_remote && !matches_prompt_hash {
             continue;
         }
-        let record = build_record(
-            LocalSessionKind::Code,
-            identity,
-            Some(local_session_id),
-            cli_session_id,
-            Some(path.clone()),
-        );
-        return Ok(Some(ResolvedSessionLink {
-            record,
+        let has_title = session_doc_has_natural_code_title(&doc, description.as_deref());
+
+        let candidate = LocalSessionMatch {
+            kind: LocalSessionKind::Code,
             path,
+            local_session_id,
+            cli_session_id: cli_session_id.map(str::to_string),
+            canonical_session_id: session_doc_canonical_id(&doc).map(str::to_string),
             description,
-            has_title: session_doc_has_title(&doc),
-        }));
+            has_title,
+            is_archived: session_doc_is_archived(&doc),
+            created_at: session_doc_created_at_ms(&doc),
+            last_activity_at: session_doc_last_activity_ms(&doc),
+            matches_remote,
+            matches_prompt_hash,
+        };
+        best = Some(match best {
+            Some(current) => select_better_local_match(current, candidate),
+            None => candidate,
+        });
     }
-    Ok(None)
+
+    Ok(best)
+}
+
+fn select_better_local_match(
+    left: LocalSessionMatch,
+    right: LocalSessionMatch,
+) -> LocalSessionMatch {
+    match compare_local_session_matches(&left, &right) {
+        Ordering::Less => right,
+        Ordering::Equal | Ordering::Greater => left,
+    }
+}
+
+fn compare_local_session_matches(left: &LocalSessionMatch, right: &LocalSessionMatch) -> Ordering {
+    left.matches_remote
+        .cmp(&right.matches_remote)
+        .then_with(|| left.matches_prompt_hash.cmp(&right.matches_prompt_hash))
+        .then_with(|| (!left.is_archived).cmp(&(!right.is_archived)))
+        .then_with(|| left.last_activity_at.cmp(&right.last_activity_at))
+        .then_with(|| left.created_at.cmp(&right.created_at))
+        .then_with(|| left.path.cmp(&right.path))
+}
+
+fn select_or_build_record(
+    registry: &SessionLinksRegistry,
+    identity: &SessionLinkIdentityInput,
+    local_match: &LocalSessionMatch,
+) -> SessionLinkRecord {
+    let mut selected = registry
+        .links
+        .values()
+        .filter(|record| record.kind == local_match.kind)
+        .filter(|record| record_matches_local_session(record, local_match, identity))
+        .cloned()
+        .max_by(|left, right| compare_record_match_priority(left, right, local_match, identity))
+        .unwrap_or_else(|| build_record_for_local_match(identity, local_match));
+    refresh_record_for_local_match(&mut selected, identity, local_match);
+    selected
+}
+
+fn compare_record_match_priority(
+    left: &SessionLinkRecord,
+    right: &SessionLinkRecord,
+    local_match: &LocalSessionMatch,
+    identity: &SessionLinkIdentityInput,
+) -> Ordering {
+    record_match_priority(left, local_match, identity)
+        .cmp(&record_match_priority(right, local_match, identity))
+        .then_with(|| left.last_seen_at.cmp(&right.last_seen_at))
+        .then_with(|| left.created_at.cmp(&right.created_at))
+        .then_with(|| left.canonical_session_id.cmp(&right.canonical_session_id))
+}
+
+fn record_match_priority(
+    record: &SessionLinkRecord,
+    local_match: &LocalSessionMatch,
+    identity: &SessionLinkIdentityInput,
+) -> (bool, bool, bool, bool, bool, bool) {
+    let current_remote = normalize_value(&identity.remote_session_id);
+    (
+        local_match
+            .canonical_session_id
+            .as_deref()
+            .map(|value| value == record.canonical_session_id)
+            .unwrap_or(false),
+        record.local_session_path.as_deref() == Some(local_match.path.to_string_lossy().as_ref()),
+        record.local_session_id.as_deref() == Some(local_match.local_session_id.as_str()),
+        local_match
+            .cli_session_id
+            .as_deref()
+            .zip(record.cli_session_id.as_deref())
+            .map(|(left, right)| left == right)
+            .unwrap_or(false),
+        current_remote
+            .as_deref()
+            .zip(record.remote_session_id.as_deref())
+            .map(|(left, right)| left == right)
+            .unwrap_or(false),
+        identity
+            .initial_prompt_hash
+            .as_deref()
+            .zip(record.initial_prompt_hash.as_deref())
+            .map(|(left, right)| left == right)
+            .unwrap_or(false),
+    )
+}
+
+fn record_matches_local_session(
+    record: &SessionLinkRecord,
+    local_match: &LocalSessionMatch,
+    identity: &SessionLinkIdentityInput,
+) -> bool {
+    let local_path = local_match.path.to_string_lossy();
+    local_match
+        .canonical_session_id
+        .as_deref()
+        .map(|value| value == record.canonical_session_id)
+        .unwrap_or(false)
+        || record.local_session_path.as_deref() == Some(local_path.as_ref())
+        || record.local_session_id.as_deref() == Some(local_match.local_session_id.as_str())
+        || local_match
+            .cli_session_id
+            .as_deref()
+            .zip(record.cli_session_id.as_deref())
+            .map(|(left, right)| left == right)
+            .unwrap_or(false)
+        || normalize_value(&identity.remote_session_id)
+            .as_deref()
+            .zip(record.remote_session_id.as_deref())
+            .map(|(left, right)| left == right)
+            .unwrap_or(false)
+        || identity
+            .initial_prompt_hash
+            .as_deref()
+            .zip(record.initial_prompt_hash.as_deref())
+            .map(|(left, right)| left == right)
+            .unwrap_or(false)
+}
+
+fn build_record_for_local_match(
+    identity: &SessionLinkIdentityInput,
+    local_match: &LocalSessionMatch,
+) -> SessionLinkRecord {
+    build_record(
+        local_match.kind,
+        identity,
+        Some(local_match.local_session_id.clone()),
+        local_match.cli_session_id.clone(),
+        Some(local_match.path.clone()),
+    )
+}
+
+fn refresh_record_for_local_match(
+    record: &mut SessionLinkRecord,
+    identity: &SessionLinkIdentityInput,
+    local_match: &LocalSessionMatch,
+) {
+    refresh_record(record, identity, &local_match.path);
+    record.local_session_id = Some(local_match.local_session_id.clone());
+    record.cli_session_id = local_match.cli_session_id.clone();
+}
+
+fn prune_conflicting_records(
+    registry: &mut SessionLinksRegistry,
+    selected: &SessionLinkRecord,
+    identity: &SessionLinkIdentityInput,
+    local_match: &LocalSessionMatch,
+) {
+    let selected_canonical = selected.canonical_session_id.clone();
+    let selected_path = local_match.path.to_string_lossy().to_string();
+    let current_remote = normalize_value(&identity.remote_session_id);
+
+    registry.links.retain(|canonical_id, record| {
+        if canonical_id == &selected_canonical {
+            return true;
+        }
+        if record.kind != local_match.kind {
+            return true;
+        }
+        if record.local_session_path.as_deref() == Some(selected_path.as_str()) {
+            return false;
+        }
+        if record.local_session_id.as_deref() == Some(local_match.local_session_id.as_str()) {
+            return false;
+        }
+        if local_match
+            .cli_session_id
+            .as_deref()
+            .zip(record.cli_session_id.as_deref())
+            .map(|(left, right)| left == right)
+            .unwrap_or(false)
+        {
+            return false;
+        }
+        if current_remote
+            .as_deref()
+            .zip(record.remote_session_id.as_deref())
+            .map(|(left, right)| left == right)
+            .unwrap_or(false)
+        {
+            return false;
+        }
+        true
+    });
 }
 
 fn build_record(
@@ -603,6 +702,70 @@ fn session_doc_has_title(doc: &Value) -> bool {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .is_some()
+}
+
+fn session_doc_title_source(doc: &Value) -> Option<&str> {
+    doc.get("titleSource")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn normalize_prompt_like_title(raw: &str) -> Option<String> {
+    let collapsed = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.is_empty() {
+        return None;
+    }
+    if collapsed.chars().count() <= LOCAL_SESSION_TITLE_MAX_CHARS {
+        return Some(collapsed);
+    }
+
+    let mut result = collapsed
+        .chars()
+        .take(LOCAL_SESSION_TITLE_MAX_CHARS)
+        .collect::<String>();
+    result.push_str("...");
+    Some(result)
+}
+
+fn session_doc_has_natural_code_title(doc: &Value, description: Option<&str>) -> bool {
+    let Some(title) = doc
+        .get("title")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return false;
+    };
+
+    if session_doc_title_source(doc) == Some("prompt") {
+        return false;
+    }
+
+    if let Some(prompt_like_title) = description.and_then(normalize_prompt_like_title) {
+        if title == prompt_like_title {
+            return false;
+        }
+    }
+
+    true
+}
+
+fn session_doc_is_archived(doc: &Value) -> bool {
+    doc.get("isArchived")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn session_doc_created_at_ms(doc: &Value) -> u64 {
+    doc.get("createdAt").and_then(Value::as_u64).unwrap_or(0)
+}
+
+fn session_doc_last_activity_ms(doc: &Value) -> u64 {
+    doc.get("lastActivityAt")
+        .and_then(Value::as_u64)
+        .or_else(|| doc.get("updatedAt").and_then(Value::as_u64))
+        .unwrap_or_else(|| session_doc_created_at_ms(doc))
 }
 
 fn collect_local_session_json_paths(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), AppError> {
@@ -787,6 +950,106 @@ mod tests {
     }
 
     #[test]
+    fn bootstrap_code_treats_prompt_like_title_as_not_final() {
+        let temp = tempdir().expect("tempdir");
+        let profile_dir = temp.path().join("profile");
+        let sessions_dir = profile_dir
+            .join("claude-code-sessions")
+            .join("org")
+            .join("workspace");
+        let projects_dir = temp.path().join("projects").join("demo-project");
+        fs::create_dir_all(&sessions_dir).expect("create code sessions dir");
+        fs::create_dir_all(&projects_dir).expect("create projects dir");
+
+        let session_path = sessions_dir.join("local_code.json");
+        write_json_file(
+            &session_path,
+            &json!({
+                "sessionId": "local_code",
+                "cliSessionId": "cli-session-456",
+                "cwd": "/tmp/project",
+                "title": "你好",
+                "titleSource": "auto"
+            }),
+        )
+        .expect("write code session");
+        fs::write(
+            projects_dir.join("cli-session-456.jsonl"),
+            concat!(
+                "{\"type\":\"queue-operation\",\"operation\":\"enqueue\",\"content\":\"你好\"}\n",
+                "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"你好\"}}\n"
+            ),
+        )
+        .expect("write transcript");
+
+        let identity = build_identity_input("cli-session-456".to_string(), None, None, None);
+        let resolved = resolve_title_target(
+            &profile_dir,
+            Some(temp.path().join("projects").as_path()),
+            &identity,
+        )
+        .expect("resolve should work")
+        .expect("resolved session");
+
+        assert_eq!(resolved.record.kind, LocalSessionKind::Code);
+        assert!(!resolved.has_title);
+    }
+
+    #[test]
+    fn resolve_title_target_prefers_bootstrapped_code_over_stale_cowork_prompt_match() {
+        let temp = tempdir().expect("tempdir");
+        let profile_dir = temp.path().join("profile");
+        let cowork_dir = profile_dir
+            .join("local-agent-mode-sessions")
+            .join("org")
+            .join("workspace");
+        let projects_dir = temp.path().join("projects").join("demo-project");
+        fs::create_dir_all(&cowork_dir).expect("create cowork dir");
+        fs::create_dir_all(&projects_dir).expect("create projects dir");
+
+        write_json_file(
+            &cowork_dir.join("local_old.json"),
+            &json!({
+                "sessionId": "local_old",
+                "initialMessage": "你好",
+                "title": "中文问候",
+                "createdAt": 10,
+                "lastActivityAt": 10
+            }),
+        )
+        .expect("write stale cowork session");
+
+        fs::write(
+            projects_dir.join("remote-session-123.jsonl"),
+            concat!(
+                "{\"type\":\"user\",\"sessionId\":\"remote-session-123\",\"cwd\":\"/tmp/project/.claude/worktrees/hello-world\",\"timestamp\":\"2026-04-21T00:11:36Z\",\"message\":{\"role\":\"user\",\"content\":\"你好\"}}\n",
+                "{\"type\":\"assistant\",\"sessionId\":\"remote-session-123\",\"cwd\":\"/tmp/project/.claude/worktrees/hello-world\",\"timestamp\":\"2026-04-21T00:11:37Z\",\"message\":{\"role\":\"assistant\",\"model\":\"gpt-5.4\",\"content\":\"你好\"}}\n"
+            ),
+        )
+        .expect("write code transcript");
+
+        let identity = build_identity_input(
+            "remote-session-123".to_string(),
+            Some("你好".to_string()),
+            Some(hash_prompt("你好")),
+            Some("你好".to_string()),
+        );
+        let resolved = resolve_title_target(
+            &profile_dir,
+            Some(temp.path().join("projects").as_path()),
+            &identity,
+        )
+        .expect("resolve should work")
+        .expect("resolved session");
+
+        assert_eq!(resolved.record.kind, LocalSessionKind::Code);
+        assert_eq!(
+            resolved.record.cli_session_id.as_deref(),
+            Some("remote-session-123")
+        );
+    }
+
+    #[test]
     fn resolve_title_target_does_not_fallback_to_recent_session() {
         let temp = tempdir().expect("tempdir");
         let profile_dir = temp.path().join("profile");
@@ -822,5 +1085,116 @@ mod tests {
         .expect("resolve should work");
 
         assert!(resolved.is_none());
+    }
+
+    #[test]
+    fn resolve_title_target_prefers_exact_code_match_over_stale_registry_remote_duplicate() {
+        let temp = tempdir().expect("tempdir");
+        let profile_dir = temp.path().join("profile");
+        let sessions_dir = profile_dir
+            .join("claude-code-sessions")
+            .join("org")
+            .join("workspace");
+        let projects_dir = temp.path().join("projects").join("demo-project");
+        fs::create_dir_all(&sessions_dir).expect("create code sessions dir");
+        fs::create_dir_all(&projects_dir).expect("create projects dir");
+
+        let old_path = sessions_dir.join("local_old.json");
+        write_json_file(
+            &old_path,
+            &json!({
+                "sessionId": "local_old",
+                "cliSessionId": "cli-old",
+                "cwd": "/tmp/project",
+                "createdAt": 10,
+                "lastActivityAt": 10,
+            }),
+        )
+        .expect("write stale code session");
+
+        let current_path = sessions_dir.join("local_current.json");
+        write_json_file(
+            &current_path,
+            &json!({
+                "sessionId": "local_current",
+                "cliSessionId": "remote-session-123",
+                "cwd": "/tmp/project",
+                "createdAt": 20,
+                "lastActivityAt": 20,
+            }),
+        )
+        .expect("write current code session");
+
+        fs::write(
+            projects_dir.join("cli-old.jsonl"),
+            "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"count\"}}\n",
+        )
+        .expect("write stale transcript");
+        fs::write(
+            projects_dir.join("remote-session-123.jsonl"),
+            "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"count\"}}\n",
+        )
+        .expect("write current transcript");
+
+        let stale_record = SessionLinkRecord {
+            canonical_session_id: "canonical-stale".to_string(),
+            kind: LocalSessionKind::Code,
+            remote_session_id: Some("remote-session-123".to_string()),
+            cli_session_id: Some("cli-old".to_string()),
+            local_session_id: Some("local_old".to_string()),
+            local_session_path: Some(old_path.display().to_string()),
+            initial_prompt_hash: Some(hash_prompt("count")),
+            initial_prompt_preview: Some("count".to_string()),
+            created_at: 10,
+            last_seen_at: 10,
+        };
+        write_json_file(
+            &profile_dir.join(SESSION_LINKS_FILENAME),
+            &json!({
+                "version": 1,
+                "links": {
+                    "canonical-stale": stale_record
+                }
+            }),
+        )
+        .expect("write registry");
+
+        let identity = build_identity_input(
+            "remote-session-123".to_string(),
+            Some("count".to_string()),
+            Some(hash_prompt("count")),
+            Some("count".to_string()),
+        );
+        let resolved = resolve_title_target(
+            &profile_dir,
+            Some(temp.path().join("projects").as_path()),
+            &identity,
+        )
+        .expect("resolve should work")
+        .expect("resolved session");
+
+        assert_eq!(resolved.path, current_path);
+        assert_eq!(
+            resolved.record.local_session_id.as_deref(),
+            Some("local_current")
+        );
+        assert_eq!(
+            resolved.record.cli_session_id.as_deref(),
+            Some("remote-session-123")
+        );
+
+        let links = read_registry_links(&profile_dir).expect("read registry links");
+        let matching = links
+            .values()
+            .filter(|record| {
+                record.kind == LocalSessionKind::Code
+                    && record.remote_session_id.as_deref() == Some("remote-session-123")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(matching.len(), 1);
+        assert_eq!(
+            matching[0].local_session_path.as_deref(),
+            Some(current_path.display().to_string().as_str())
+        );
     }
 }

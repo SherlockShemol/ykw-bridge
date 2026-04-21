@@ -412,11 +412,7 @@ pub(crate) async fn run_targeted_session_title_sync(
     }
 
     let result = async {
-        let description = if prompt.is_empty() {
-            description
-        } else {
-            Some(prompt.to_string())
-        };
+        let description = select_session_title_description(description.as_deref(), &prompt);
         let Some(description) = description
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
@@ -634,6 +630,26 @@ fn sanitize_generated_title(raw: &str) -> Option<String> {
     }
 }
 
+fn select_session_title_description(
+    resolved_description: Option<&str>,
+    initial_prompt: &str,
+) -> Option<String> {
+    let resolved = resolved_description
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    if resolved.is_some() {
+        return resolved;
+    }
+
+    let prompt = initial_prompt.trim();
+    if prompt.is_empty() {
+        None
+    } else {
+        Some(prompt.to_string())
+    }
+}
+
 fn extract_anthropic_text_response(response: &Value) -> Option<String> {
     response
         .get("content")
@@ -716,8 +732,11 @@ async fn generate_claude_desktop_title_via_gateway(
     );
     let model = select_claude_desktop_title_model();
     let prompt = build_official_session_title_prompt(description, recent_titles);
+    let client = reqwest::Client::builder().no_proxy().build().map_err(|e| {
+        ProxyError::Internal(format!("Failed to build title generation client: {e}"))
+    })?;
 
-    let response = reqwest::Client::new()
+    let response = client
         .post(&url)
         .timeout(Duration::from_secs(90))
         .header(
@@ -1064,6 +1083,7 @@ mod tests {
         build_official_session_title_prompt, extract_claude_desktop_model_ids,
         extract_first_turn_title_prompt, is_session_title_generation_prompt,
         log_claude_desktop_request_shape, parse_responses_sse_body, sanitize_generated_title,
+        select_session_title_description,
     };
     use serde_json::json;
 
@@ -1144,6 +1164,22 @@ mod tests {
         assert_eq!(
             sanitize_generated_title("prefix <title>Fix mobile login</title> suffix"),
             Some("Fix mobile login".to_string())
+        );
+    }
+
+    #[test]
+    fn session_title_description_prefers_resolved_local_description() {
+        assert_eq!(
+            select_session_title_description(Some("从 transcript 解析出的标题线索"), "临时 prompt"),
+            Some("从 transcript 解析出的标题线索".to_string())
+        );
+    }
+
+    #[test]
+    fn session_title_description_falls_back_to_initial_prompt() {
+        assert_eq!(
+            select_session_title_description(None, "  先用这个 prompt 顶一下  "),
+            Some("先用这个 prompt 顶一下".to_string())
         );
     }
 

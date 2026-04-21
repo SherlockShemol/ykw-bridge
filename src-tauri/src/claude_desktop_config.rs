@@ -1,6 +1,6 @@
 #![cfg_attr(not(target_os = "macos"), allow(dead_code, unused_imports))]
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::net::IpAddr;
@@ -134,6 +134,7 @@ struct ClaudeCodeMirrorSession {
     created_at: u64,
     last_activity_at: u64,
     title: Option<String>,
+    title_source: Option<String>,
     permission_mode: String,
     model: String,
     effort: String,
@@ -452,10 +453,18 @@ fn parse_claude_code_mirror_session(
     };
 
     let title = custom_title
-        .or(first_user_message)
-        .map(|value| truncate_local_session_title(&value))
+        .as_ref()
+        .or(first_user_message.as_ref())
+        .map(|value| truncate_local_session_title(value))
         .filter(|value| !value.is_empty())
         .or_else(|| derive_path_basename(&cwd).map(|value| truncate_local_session_title(&value)));
+    let title_source = title.as_ref().map(|_| {
+        if custom_title.is_some() {
+            LOCAL_SESSION_TITLE_SOURCE_AUTO.to_string()
+        } else {
+            LOCAL_SESSION_TITLE_SOURCE_PROMPT.to_string()
+        }
+    });
 
     let created_at = created_at.unwrap_or_else(current_unix_time_ms);
     let last_activity_at = last_activity_at.unwrap_or(created_at);
@@ -473,6 +482,7 @@ fn parse_claude_code_mirror_session(
         created_at,
         last_activity_at,
         title,
+        title_source,
         permission_mode: runtime
             .permission_mode
             .unwrap_or_else(|| "default".to_string()),
@@ -553,6 +563,19 @@ fn infer_code_sessions_namespace(profile_dir: &Path) -> Option<String> {
     None
 }
 
+fn ensure_claude_code_session_bucket(profile_dir: &Path) -> Result<PathBuf, AppError> {
+    let namespace = infer_code_sessions_namespace(profile_dir);
+    let code_root = claude_code_sessions_dir(profile_dir);
+    let bucket = match namespace {
+        Some(namespace) => code_root
+            .join(namespace)
+            .join(CLAUDE_CODE_SESSION_BUCKET_DIRNAME),
+        None => code_root.join(CLAUDE_CODE_SESSION_BUCKET_DIRNAME),
+    };
+    fs::create_dir_all(&bucket).map_err(|e| AppError::io(&bucket, e))?;
+    Ok(bucket)
+}
+
 fn prepare_claude_code_session_bucket(profile_dir: &Path) -> Result<PathBuf, AppError> {
     let namespace = infer_code_sessions_namespace(profile_dir);
     let code_root = claude_code_sessions_dir(profile_dir);
@@ -611,7 +634,15 @@ fn build_claude_code_session_doc(session: &ClaudeCodeMirrorSession) -> Value {
 
     if let Some(title) = session.title.as_ref() {
         doc.insert("title".to_string(), Value::String(title.clone()));
-        doc.insert("titleSource".to_string(), Value::String("auto".to_string()));
+        doc.insert(
+            "titleSource".to_string(),
+            Value::String(
+                session
+                    .title_source
+                    .clone()
+                    .unwrap_or_else(|| LOCAL_SESSION_TITLE_SOURCE_PROMPT.to_string()),
+            ),
+        );
     }
     if let Some(worktree_path) = session.worktree_path.as_ref() {
         doc.insert(
@@ -636,6 +667,136 @@ fn build_claude_code_session_doc(session: &ClaudeCodeMirrorSession) -> Value {
     }
 
     Value::Object(doc)
+}
+
+fn collect_existing_code_session_title_metadata(
+    dir: &Path,
+    out: &mut HashMap<String, (String, Option<String>)>,
+) -> Result<(), AppError> {
+    if !dir.exists() {
+        return Ok(());
+    }
+
+    for entry in fs::read_dir(dir).map_err(|e| AppError::io(dir, e))? {
+        let entry = entry.map_err(|e| AppError::io(dir, e))?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_existing_code_session_title_metadata(&path, out)?;
+            continue;
+        }
+        if path.extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+
+        let existing = match read_json_file::<Value>(&path) {
+            Ok(doc) => doc,
+            Err(_) => continue,
+        };
+        let Some(existing_title) = session_doc_title(&existing).map(str::to_string) else {
+            continue;
+        };
+        let local_session_id = existing
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+            .or_else(|| {
+                path.file_stem()
+                    .and_then(|value| value.to_str())
+                    .map(ToOwned::to_owned)
+            });
+        let Some(local_session_id) = local_session_id else {
+            continue;
+        };
+        out.insert(
+            local_session_id,
+            (
+                existing_title,
+                session_doc_title_source(&existing).map(str::to_string),
+            ),
+        );
+    }
+
+    Ok(())
+}
+
+fn read_existing_code_session_title_metadata(path: &Path) -> Option<(String, Option<String>)> {
+    let existing = read_json_file::<Value>(path).ok()?;
+    let title = session_doc_title(&existing).map(str::to_string)?;
+    Some((
+        title,
+        session_doc_title_source(&existing).map(str::to_string),
+    ))
+}
+
+pub(crate) fn ensure_code_session_doc_for_cli_session(
+    profile_dir: &Path,
+    projects_dir: &Path,
+    cli_session_id: &str,
+) -> Result<Option<PathBuf>, AppError> {
+    let transcript_path = {
+        let mut files = Vec::new();
+        collect_claude_project_jsonl_paths(projects_dir, &mut files)?;
+        files.into_iter().find(|path| {
+            path.file_stem()
+                .and_then(|stem| stem.to_str())
+                .map(|stem| stem == cli_session_id)
+                .unwrap_or(false)
+        })
+    };
+    let Some(transcript_path) = transcript_path else {
+        return Ok(None);
+    };
+
+    let default_model = default_claude_code_session_model();
+    let Some(session) = parse_claude_code_mirror_session(&transcript_path, &default_model)? else {
+        return Ok(None);
+    };
+
+    let bucket = ensure_claude_code_session_bucket(profile_dir)?;
+    let path = bucket.join(format!("{}.json", session.local_session_id));
+    let mut doc = build_claude_code_session_doc(&session);
+    let existing_title_metadata = read_existing_code_session_title_metadata(&path);
+    preserve_existing_code_session_title(existing_title_metadata.as_ref(), &mut doc);
+    write_json_file(&path, &doc)?;
+    Ok(Some(path))
+}
+
+fn preserve_existing_code_session_title(
+    existing_title_metadata: Option<&(String, Option<String>)>,
+    doc: &mut Value,
+) {
+    let Some((existing_title, existing_source)) = existing_title_metadata else {
+        return;
+    };
+    let mirrored_title = session_doc_title(doc).map(str::to_string);
+
+    let should_preserve = match existing_source.as_deref() {
+        Some(LOCAL_SESSION_TITLE_SOURCE_PROMPT) => false,
+        Some(LOCAL_SESSION_TITLE_SOURCE_AUTO) | Some("manual") => mirrored_title
+            .as_deref()
+            .map(|title| title != existing_title.as_str())
+            .unwrap_or(true),
+        Some(_) | None => mirrored_title
+            .as_deref()
+            .map(|title| title != existing_title.as_str())
+            .unwrap_or(true),
+    };
+
+    if !should_preserve {
+        return;
+    }
+
+    let Some(obj) = doc.as_object_mut() else {
+        return;
+    };
+    obj.insert("title".to_string(), Value::String(existing_title.clone()));
+    if let Some(source) = existing_source {
+        obj.insert("titleSource".to_string(), Value::String(source.clone()));
+    } else {
+        obj.remove("titleSource");
+    }
 }
 
 fn write_git_worktrees_index(
@@ -679,11 +840,20 @@ fn sync_claude_code_sessions_in_profile(
     projects_dir: &Path,
 ) -> Result<(), AppError> {
     let sessions = collect_claude_code_mirror_sessions(projects_dir)?;
+    let mut existing_title_metadata = HashMap::new();
+    collect_existing_code_session_title_metadata(
+        &claude_code_sessions_dir(profile_dir),
+        &mut existing_title_metadata,
+    )?;
     let bucket = prepare_claude_code_session_bucket(profile_dir)?;
 
     for session in &sessions {
         let path = bucket.join(format!("{}.json", session.local_session_id));
-        let doc = build_claude_code_session_doc(session);
+        let mut doc = build_claude_code_session_doc(session);
+        preserve_existing_code_session_title(
+            existing_title_metadata.get(&session.local_session_id),
+            &mut doc,
+        );
         write_json_file(&path, &doc)?;
     }
 
@@ -2649,6 +2819,10 @@ lo0: flags=8049<UP,LOOPBACK,RUNNING,MULTICAST> mtu 16384
             Some("重构登录流程")
         );
         assert_eq!(
+            worktree_doc.get("titleSource").and_then(Value::as_str),
+            Some(LOCAL_SESSION_TITLE_SOURCE_AUTO)
+        );
+        assert_eq!(
             worktree_doc.get("permissionMode").and_then(Value::as_str),
             Some("acceptEdits")
         );
@@ -2687,6 +2861,10 @@ lo0: flags=8049<UP,LOOPBACK,RUNNING,MULTICAST> mtu 16384
         );
         assert!(plain_doc.get("worktreePath").is_none());
         assert_eq!(plain_doc.get("title").and_then(Value::as_str), Some("你好"));
+        assert_eq!(
+            plain_doc.get("titleSource").and_then(Value::as_str),
+            Some(LOCAL_SESSION_TITLE_SOURCE_PROMPT)
+        );
 
         let worktrees = read_json_file::<Value>(&resolve_git_worktrees_path(&profile_dir))
             .expect("read rebuilt git worktrees");
@@ -2741,6 +2919,53 @@ lo0: flags=8049<UP,LOOPBACK,RUNNING,MULTICAST> mtu 16384
             .get("canonicalSessionId")
             .and_then(Value::as_str)
             .is_some());
+    }
+
+    #[test]
+    fn sync_claude_code_sessions_preserves_generated_title_metadata() {
+        let temp = tempdir().expect("tempdir");
+        let profile_dir = temp.path().join("profile");
+        let projects_dir = temp.path().join("projects").join("demo-project");
+        let bucket = profile_dir
+            .join("claude-code-sessions")
+            .join("org")
+            .join(CLAUDE_CODE_SESSION_BUCKET_DIRNAME);
+        fs::create_dir_all(&bucket).expect("create mirrored bucket");
+        fs::create_dir_all(&projects_dir).expect("create projects dir");
+
+        let local_id = derive_local_code_session_id("cli-session-789");
+        write_json_file(
+            &bucket.join(format!("{local_id}.json")),
+            &json!({
+                "sessionId": local_id,
+                "cliSessionId": "cli-session-789",
+                "title": "Greeting in Chinese",
+                "titleSource": LOCAL_SESSION_TITLE_SOURCE_AUTO
+            }),
+        )
+        .expect("write existing generated title");
+
+        fs::write(
+            projects_dir.join("cli-session-789.jsonl"),
+            concat!(
+                "{\"type\":\"user\",\"sessionId\":\"cli-session-789\",\"cwd\":\"/tmp/plain-project\",\"timestamp\":\"2026-04-18T09:00:00Z\",\"message\":{\"role\":\"user\",\"content\":\"你好\"}}\n",
+                "{\"type\":\"assistant\",\"sessionId\":\"cli-session-789\",\"cwd\":\"/tmp/plain-project\",\"timestamp\":\"2026-04-18T09:01:00Z\",\"message\":{\"role\":\"assistant\",\"content\":\"你好，有什么我可以帮忙的？\"}}\n"
+            ),
+        )
+        .expect("write plain transcript");
+
+        sync_claude_code_sessions_in_profile(&profile_dir, &projects_dir).expect("sync sessions");
+
+        let after = read_json_file::<Value>(&bucket.join(format!("{local_id}.json")))
+            .expect("read preserved session");
+        assert_eq!(
+            after.get("title").and_then(Value::as_str),
+            Some("Greeting in Chinese")
+        );
+        assert_eq!(
+            after.get("titleSource").and_then(Value::as_str),
+            Some(LOCAL_SESSION_TITLE_SOURCE_AUTO)
+        );
     }
 
     #[test]

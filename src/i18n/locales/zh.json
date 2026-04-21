@@ -238,10 +238,10 @@
     "tabProxy": "路由",
     "authCenter": {
       "title": "OAuth 认证中心",
-      "description": "在 Claude Code 中使用您的其他订阅，请注意合规风险。",
+      "description": "在 Claude 工作流中使用您的其他订阅，请注意合规风险。",
       "beta": "Beta",
       "copilotDescription": "管理 GitHub Copilot 账号",
-      "codexOauthDescription": "管理 ChatGPT 账号"
+      "codexOauthDescription": "管理供 Claude 供应商使用的 ChatGPT 账号"
     },
     "advanced": {
       "configDir": {
@@ -723,7 +723,7 @@
     "configContent": "配置内容",
     "officialNoApiKey": "官方登录无需填写 API Key，直接保存即可",
     "codexOfficialNoApiKey": "官方无需填写 API Key，直接保存即可",
-    "codexApiKeyAutoFill": "只需要填这里，下方 auth.json 会自动填充",
+    "codexApiKeyAutoFill": "只需要填这里，下方 Claude 供应商配置会自动填充",
     "apiKeyAutoFill": "只需要填这里，下方配置会自动填充",
     "cnOfficialApiKeyHint": "💡 只需填写 API Key，请求地址已预设",
     "aggregatorApiKeyHint": "💡 只需填写 API Key，请求地址已预设",

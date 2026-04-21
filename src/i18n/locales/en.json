@@ -238,10 +238,10 @@
     "tabProxy": "Routing",
     "authCenter": {
       "title": "OAuth Authentication Center",
-      "description": "Use your other subscriptions in Claude Code — please be mindful of compliance risks.",
+      "description": "Use your other subscriptions in Claude workflows — please be mindful of compliance risks.",
       "beta": "Beta",
       "copilotDescription": "Manage GitHub Copilot accounts",
-      "codexOauthDescription": "Manage ChatGPT accounts"
+      "codexOauthDescription": "Manage ChatGPT accounts used by Claude providers"
     },
     "advanced": {
       "configDir": {
@@ -723,7 +723,7 @@
     "configContent": "Config Content",
     "officialNoApiKey": "Official login does not require API Key, save directly",
     "codexOfficialNoApiKey": "Official does not require API Key, save directly",
-    "codexApiKeyAutoFill": "Just fill in here, auth.json below will be auto-filled",
+    "codexApiKeyAutoFill": "Just fill this in and the Claude provider config below will be auto-filled",
     "apiKeyAutoFill": "Just fill in here, config below will be auto-filled",
     "cnOfficialApiKeyHint": "💡 Only need to fill in API Key, endpoint is preset",
     "aggregatorApiKeyHint": "💡 Only need to fill in API Key, endpoint is preset",

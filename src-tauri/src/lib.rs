@@ -481,7 +481,7 @@ pub fn run() {
 
             // 1.5. 自动导入 live 配置 + seed Claude 官方预设供应商
             //
-            // 先 import 后 seed 是有意为之：先把用户手动配置的 settings.json / auth.json / .env
+            // 先 import 后 seed 是有意为之：先把用户当前 Claude 工作流的 live 配置
             // 落成 "default" provider 设为 current，再追加官方预设（is_current=false）。
             // 这样用户切到官方预设时，回填机制会保护原 live 配置不丢失。
             //

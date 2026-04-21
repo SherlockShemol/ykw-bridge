@@ -779,7 +779,7 @@ export const providerPresets: ProviderPreset[] = [
     iconColor: "#000000",
   },
   {
-    name: "Codex",
+    name: "Codex (Claude Provider)",
     websiteUrl: "https://openai.com/chatgpt/pricing",
     settingsConfig: {
       env: {
@@ -794,6 +794,8 @@ export const providerPresets: ProviderPreset[] = [
     },
     category: "third_party",
     apiFormat: "openai_responses",
+    // 仅作为 Claude 工作流中的 provider 路径使用；
+    // 不接管或改写用户独立安装的 Codex app。
     providerType: "codex_oauth",
     requiresOAuth: true,
     icon: "openai",

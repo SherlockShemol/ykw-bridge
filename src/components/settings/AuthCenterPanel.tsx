@@ -24,7 +24,7 @@ export function AuthCenterPanel() {
             <p className="text-sm text-muted-foreground">
               {t("settings.authCenter.description", {
                 defaultValue:
-                  "在 Claude Code 中使用您的其他订阅，请注意合规风险。",
+                  "在 Claude 工作流中使用您的其他订阅，请注意合规风险。",
               })}
             </p>
           </div>
@@ -61,7 +61,7 @@ export function AuthCenterPanel() {
             <h4 className="font-medium">ChatGPT / OpenAI</h4>
             <p className="text-sm text-muted-foreground">
               {t("settings.authCenter.codexOauthDescription", {
-                defaultValue: "管理 ChatGPT / OpenAI 账号",
+                defaultValue: "管理供 Claude 供应商使用的 ChatGPT 账号",
               })}
             </p>
           </div>
