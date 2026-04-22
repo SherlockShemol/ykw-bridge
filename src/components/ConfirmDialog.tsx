@@ -37,7 +37,9 @@ export function ConfirmDialog({
 
   const IconComponent = variant === "info" ? Info : AlertTriangle;
   const iconClass =
-    variant === "info" ? "h-5 w-5 text-blue-500" : "h-5 w-5 text-destructive";
+    variant === "info"
+      ? "h-5 w-5 text-muted-foreground"
+      : "h-5 w-5 text-destructive";
 
   return (
     <Dialog

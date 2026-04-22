@@ -153,7 +153,7 @@ function App() {
   const skillsPageRef = useRef<any>(null);
   const unifiedSkillsPanelRef = useRef<any>(null);
   const addActionButtonClass =
-    "bg-orange-500 hover:bg-orange-600 dark:bg-orange-500 dark:hover:bg-orange-600 text-white shadow-lg shadow-orange-500/30 dark:shadow-orange-500/40 rounded-full w-8 h-8";
+    "h-9 rounded-md border border-border bg-card px-3 text-foreground shadow-sm hover:bg-muted hover:border-border-hover";
 
   const {
     isRunning: isProxyRunning,
@@ -832,7 +832,7 @@ function App() {
       )}
 
       <header
-        className="fixed z-50 w-full transition-all duration-300 bg-background/80 backdrop-blur-md"
+        className="fixed z-50 w-full bg-background/95"
         {...DRAG_REGION_ATTR}
         style={
           {
@@ -889,10 +889,10 @@ function App() {
                     target="_blank"
                     rel="noreferrer"
                     className={cn(
-                      "text-xl font-semibold transition-colors",
+                      "text-xl font-semibold tracking-tight transition-colors",
                       isProxyRunning && isCurrentAppTakeoverActive
-                        ? "text-emerald-500 hover:text-emerald-600 dark:text-emerald-400 dark:hover:text-emerald-300"
-                        : "text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300",
+                        ? "text-foreground hover:text-foreground/80"
+                        : "text-foreground hover:text-foreground/80",
                     )}
                   >
                     YKW Bridge
@@ -906,7 +906,7 @@ function App() {
                     setCurrentView("settings");
                   }}
                   title={t("common.settings")}
-                  className="hover:bg-black/5 dark:hover:bg-white/5"
+                  className="text-muted-foreground hover:bg-muted hover:text-foreground"
                 >
                   <Settings className="w-4 h-4" />
                 </Button>
@@ -927,7 +927,7 @@ function App() {
                     title={t("usage.title", {
                       defaultValue: "使用统计",
                     })}
-                    className="hover:bg-black/5 dark:hover:bg-white/5"
+                    className="text-muted-foreground hover:bg-muted hover:text-foreground"
                   >
                     <BarChart2 className="w-4 h-4" />
                   </Button>
@@ -963,7 +963,7 @@ function App() {
                     variant="ghost"
                     size="sm"
                     onClick={() => promptPanelRef.current?.openAdd()}
-                    className="hover:bg-black/5 dark:hover:bg-white/5"
+                    className="text-muted-foreground hover:bg-muted hover:text-foreground"
                   >
                     <Plus className="w-4 h-4 mr-2" />
                     {t("prompts.add")}
@@ -975,7 +975,7 @@ function App() {
                       variant="ghost"
                       size="sm"
                       onClick={() => mcpPanelRef.current?.openImport()}
-                      className="hover:bg-black/5 dark:hover:bg-white/5"
+                      className="text-muted-foreground hover:bg-muted hover:text-foreground"
                     >
                       <Download className="w-4 h-4 mr-2" />
                       {t("mcp.importExisting")}
@@ -984,7 +984,7 @@ function App() {
                       variant="ghost"
                       size="sm"
                       onClick={() => mcpPanelRef.current?.openAdd()}
-                      className="hover:bg-black/5 dark:hover:bg-white/5"
+                      className="text-muted-foreground hover:bg-muted hover:text-foreground"
                     >
                       <Plus className="w-4 h-4 mr-2" />
                       {t("mcp.addMcp")}
@@ -999,7 +999,7 @@ function App() {
                       onClick={() =>
                         unifiedSkillsPanelRef.current?.openRestoreFromBackup()
                       }
-                      className="hover:bg-black/5 dark:hover:bg-white/5"
+                      className="text-muted-foreground hover:bg-muted hover:text-foreground"
                     >
                       <History className="w-4 h-4 mr-2" />
                       {t("skills.restoreFromBackup.button")}
@@ -1010,7 +1010,7 @@ function App() {
                       onClick={() =>
                         unifiedSkillsPanelRef.current?.openInstallFromZip()
                       }
-                      className="hover:bg-black/5 dark:hover:bg-white/5"
+                      className="text-muted-foreground hover:bg-muted hover:text-foreground"
                     >
                       <FolderArchive className="w-4 h-4 mr-2" />
                       {t("skills.installFromZip.button")}
@@ -1021,7 +1021,7 @@ function App() {
                       onClick={() =>
                         unifiedSkillsPanelRef.current?.openImport()
                       }
-                      className="hover:bg-black/5 dark:hover:bg-white/5"
+                      className="text-muted-foreground hover:bg-muted hover:text-foreground"
                     >
                       <Download className="w-4 h-4 mr-2" />
                       {t("skills.import")}
@@ -1030,7 +1030,7 @@ function App() {
                       variant="ghost"
                       size="sm"
                       onClick={() => setCurrentView("skillsDiscovery")}
-                      className="hover:bg-black/5 dark:hover:bg-white/5"
+                      className="text-muted-foreground hover:bg-muted hover:text-foreground"
                     >
                       <Search className="w-4 h-4 mr-2" />
                       {t("skills.discover")}
@@ -1043,7 +1043,7 @@ function App() {
                       variant="ghost"
                       size="sm"
                       onClick={() => skillsPageRef.current?.refresh()}
-                      className="hover:bg-black/5 dark:hover:bg-white/5"
+                      className="text-muted-foreground hover:bg-muted hover:text-foreground"
                     >
                       <RefreshCw className="w-4 h-4 mr-2" />
                       {t("skills.refresh")}
@@ -1052,7 +1052,7 @@ function App() {
                       variant="ghost"
                       size="sm"
                       onClick={() => skillsPageRef.current?.openRepoManager()}
-                      className="hover:bg-black/5 dark:hover:bg-white/5"
+                      className="text-muted-foreground hover:bg-muted hover:text-foreground"
                     >
                       <Settings className="w-4 h-4 mr-2" />
                       {t("skills.repoManager")}
@@ -1061,14 +1061,14 @@ function App() {
                 )}
                 {currentView === "providers" && (
                   <>
-                    <div className="flex items-center gap-1 p-1 bg-muted rounded-xl">
+                    <div className="flex h-9 items-center gap-1 rounded-lg border border-border bg-card px-0.5 shadow-sm">
                       {hasSkillsSupport && (
                         <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => setCurrentView("skills")}
                           className={cn(
-                            "text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5",
+                            "text-muted-foreground hover:text-foreground text-muted-foreground hover:bg-muted hover:text-foreground",
                             "transition-all duration-200 ease-in-out overflow-hidden",
                             "opacity-100 w-8 scale-100 px-2",
                           )}
@@ -1082,7 +1082,7 @@ function App() {
                           variant="ghost"
                           size="sm"
                           onClick={() => setCurrentView("prompts")}
-                          className="text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5"
+                          className="text-muted-foreground hover:text-foreground text-muted-foreground hover:bg-muted hover:text-foreground"
                           title={t("prompts.manage")}
                         >
                           <Book className="w-4 h-4" />
@@ -1094,7 +1094,7 @@ function App() {
                           size="sm"
                           onClick={() => setCurrentView("sessions")}
                           className={cn(
-                            "text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5",
+                            "text-muted-foreground hover:text-foreground text-muted-foreground hover:bg-muted hover:text-foreground",
                             "transition-all duration-200 ease-in-out overflow-hidden",
                             "opacity-100 w-8 scale-100 px-2",
                           )}
@@ -1108,7 +1108,7 @@ function App() {
                           variant="ghost"
                           size="sm"
                           onClick={() => setCurrentView("mcp")}
-                          className="text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5"
+                          className="text-muted-foreground hover:text-foreground text-muted-foreground hover:bg-muted hover:text-foreground"
                           title={t("mcp.title")}
                         >
                           <McpIcon size={16} />
@@ -1118,10 +1118,11 @@ function App() {
 
                     <Button
                       onClick={() => setIsAddOpen(true)}
-                      size="icon"
+                      size="sm"
                       className={`ml-2 ${addActionButtonClass}`}
                     >
-                      <Plus className="w-5 h-5" />
+                      <Plus className="h-4 w-4" />
+                      {t("provider.addProvider", { defaultValue: "新增" })}
                     </Button>
                   </>
                 )}

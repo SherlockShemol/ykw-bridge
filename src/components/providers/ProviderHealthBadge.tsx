@@ -17,37 +17,35 @@ export function ProviderHealthBadge({
 }: ProviderHealthBadgeProps) {
   const { t } = useTranslation();
 
-  // 根据失败次数计算状态
   const getStatus = () => {
     if (consecutiveFailures === 0) {
       return {
         labelKey: "health.operational",
         labelFallback: "正常",
         status: ProviderHealthStatus.Healthy,
-        color: "bg-green-500",
-        // 使用更深/柔和的背景色，去除可能的白色内容感
-        bgColor: "bg-green-500/10",
-        textColor: "text-green-600 dark:text-green-400",
+        dotColor: "bg-sky-500",
+        bgColor: "bg-sky-50 dark:bg-sky-950/30",
+        textColor: "text-sky-700 dark:text-sky-300",
       };
     } else if (consecutiveFailures < 5) {
       return {
         labelKey: "health.degraded",
         labelFallback: "降级",
         status: ProviderHealthStatus.Degraded,
-        color: "bg-yellow-500",
-        bgColor: "bg-yellow-500/10",
-        textColor: "text-yellow-600 dark:text-yellow-400",
-      };
-    } else {
-      return {
-        labelKey: "health.circuitOpen",
-        labelFallback: "熔断",
-        status: ProviderHealthStatus.Failed,
-        color: "bg-red-500",
-        bgColor: "bg-red-500/10",
-        textColor: "text-red-600 dark:text-red-400",
+        dotColor: "bg-amber-500",
+        bgColor: "bg-amber-50 dark:bg-amber-950/30",
+        textColor: "text-amber-700 dark:text-amber-300",
       };
     }
+
+    return {
+      labelKey: "health.circuitOpen",
+      labelFallback: "熔断",
+      status: ProviderHealthStatus.Failed,
+      dotColor: "bg-red-500",
+      bgColor: "bg-red-50 dark:bg-red-950/30",
+      textColor: "text-red-700 dark:text-red-300",
+    };
   };
 
   const statusConfig = getStatus();
@@ -68,7 +66,7 @@ export function ProviderHealthBadge({
         defaultValue: `连续失败 ${consecutiveFailures} 次`,
       })}
     >
-      <div className={cn("w-2 h-2 rounded-full", statusConfig.color)} />
+      <div className={cn("w-2 h-2 rounded-full", statusConfig.dotColor)} />
       <span>{label}</span>
     </div>
   );

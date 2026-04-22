@@ -169,34 +169,21 @@ export function ProviderCard({
     ? activeProviderId === provider.id
     : isCurrent;
 
-  const shouldUseGreen = isProxyTakeover && isActiveProvider;
-  const shouldUseBlue = !isProxyTakeover && isActiveProvider;
+  const shouldHighlightActive = isActiveProvider;
+  const shouldHighlightProxyActive = isProxyTakeover && isActiveProvider;
 
   return (
     <div
       className={cn(
-        "relative overflow-hidden rounded-xl border border-border p-4 transition-all duration-300",
-        "bg-card text-card-foreground group",
-        isAutoFailoverEnabled || isProxyTakeover
-          ? "hover:border-emerald-500/50"
-          : "hover:border-border-active",
-        shouldUseGreen &&
-          "border-emerald-500/60 shadow-sm shadow-emerald-500/10",
-        shouldUseBlue && "border-blue-500/60 shadow-sm shadow-blue-500/10",
-        !isActiveProvider && "hover:shadow-sm",
+        "group relative overflow-hidden rounded-lg border border-border bg-card p-4 text-card-foreground transition-all duration-200",
+        "hover:border-foreground/20",
+        shouldHighlightActive && "border-foreground/20 bg-muted/20",
+        shouldHighlightProxyActive && "border-foreground/30 bg-muted/30",
+        !isActiveProvider && "hover:bg-muted/30 hover:shadow-sm",
         dragHandleProps?.isDragging &&
-          "cursor-grabbing border-primary shadow-lg scale-105 z-10",
+          "z-10 scale-[1.01] cursor-grabbing border-foreground/30 bg-background shadow-lg",
       )}
     >
-      <div
-        className={cn(
-          "absolute inset-0 bg-gradient-to-r to-transparent transition-opacity duration-500 pointer-events-none",
-          shouldUseGreen && "from-emerald-500/10",
-          shouldUseBlue && "from-blue-500/10",
-          !shouldUseGreen && !shouldUseBlue && "from-primary/10",
-          isActiveProvider ? "opacity-100" : "opacity-0",
-        )}
-      />
       <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-1 items-center gap-2">
           <button
@@ -213,7 +200,7 @@ export function ProviderCard({
             <GripVertical className="h-4 w-4" />
           </button>
 
-          <div className="h-8 w-8 rounded-lg bg-muted flex items-center justify-center border border-border group-hover:scale-105 transition-transform duration-300">
+          <div className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background transition-colors duration-200 group-hover:bg-muted/60">
             <ProviderIcon
               icon={provider.icon}
               name={provider.name}
@@ -224,7 +211,7 @@ export function ProviderCard({
 
           <div className="space-y-1">
             <div className="flex flex-wrap items-center gap-2 min-h-7">
-              <h3 className="text-base font-semibold leading-none">
+              <h3 className="text-[15px] font-semibold leading-none tracking-tight">
                 {provider.name}
               </h3>
 
@@ -260,8 +247,8 @@ export function ProviderCard({
                 className={cn(
                   "inline-flex items-center text-sm max-w-[280px]",
                   isClickableUrl
-                    ? "text-blue-500 transition-colors hover:underline dark:text-blue-400 cursor-pointer"
-                    : "text-muted-foreground cursor-default",
+                    ? "cursor-pointer text-muted-foreground transition-colors hover:text-foreground hover:underline"
+                    : "cursor-default text-muted-foreground",
                 )}
                 title={displayUrl}
                 disabled={!isClickableUrl}
@@ -294,7 +281,7 @@ export function ProviderCard({
                   isCurrent={isCurrent}
                 />
               ) : hasMultiplePlans ? (
-                <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <span className="font-medium">
                     {t("usage.multiplePlans", {
                       count: usage?.data?.length || 0,
@@ -318,7 +305,7 @@ export function ProviderCard({
                     e.stopPropagation();
                     setIsExpanded(!isExpanded);
                   }}
-                  className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-gray-500 dark:text-gray-400 flex-shrink-0"
+                  className="flex-shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                   title={
                     isExpanded
                       ? t("usage.collapse", { defaultValue: "收起" })

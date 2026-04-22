@@ -205,11 +205,11 @@ const UsageFooter: React.FC<UsageFooterProps> = ({
               <span
                 className={`font-semibold tabular-nums ${
                   isExpired
-                    ? "text-red-500 dark:text-red-400"
+                    ? "text-red-600 dark:text-red-400"
                     : firstUsage.remaining <
                         (firstUsage.total || firstUsage.remaining) * 0.1
-                      ? "text-orange-500 dark:text-orange-400"
-                      : "text-green-600 dark:text-green-400"
+                      ? "text-amber-600 dark:text-amber-400"
+                      : "text-sky-600 dark:text-sky-400"
                 }`}
               >
                 {firstUsage.remaining.toFixed(2)}
@@ -302,10 +302,10 @@ const UsagePlanItem: React.FC<{ data: UsageData }> = ({ data }) => {
       >
         {planName ? (
           <span
-            className={`font-medium truncate block ${isExpired ? "text-red-500 dark:text-red-400" : ""}`}
+            className={`font-medium truncate block ${isExpired ? "text-red-600 dark:text-red-400" : "text-foreground"}`}
             title={planName}
           >
-            💰 {planName}
+            {planName}
           </span>
         ) : (
           <span className="opacity-50">—</span>
@@ -319,14 +319,14 @@ const UsagePlanItem: React.FC<{ data: UsageData }> = ({ data }) => {
       >
         {extra && (
           <span
-            className={`truncate ${isExpired ? "text-red-500 dark:text-red-400" : ""}`}
+            className={`truncate ${isExpired ? "text-red-600 dark:text-red-400" : ""}`}
             title={extra}
           >
             {extra}
           </span>
         )}
         {isExpired && (
-          <span className="text-red-500 dark:text-red-400 font-medium text-[10px] px-1.5 py-0.5 bg-red-50 dark:bg-red-900/20 rounded flex-shrink-0">
+          <span className="flex-shrink-0 rounded border border-red-200 bg-red-50 px-1.5 py-0.5 text-[10px] font-medium text-red-600 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-400">
             {invalidMessage || t("usage.invalid")}
           </span>
         )}
@@ -372,10 +372,10 @@ const UsagePlanItem: React.FC<{ data: UsageData }> = ({ data }) => {
             <span
               className={`font-semibold tabular-nums ${
                 isExpired
-                  ? "text-red-500 dark:text-red-400"
+                  ? "text-red-600 dark:text-red-400"
                   : remaining < (total || remaining) * 0.1
-                    ? "text-orange-500 dark:text-orange-400"
-                    : "text-green-600 dark:text-green-400"
+                    ? "text-amber-600 dark:text-amber-400"
+                    : "text-sky-600 dark:text-sky-400"
               }`}
             >
               {remaining.toFixed(2)}

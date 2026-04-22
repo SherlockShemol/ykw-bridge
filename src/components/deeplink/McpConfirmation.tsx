@@ -37,7 +37,7 @@ export function McpConfirmation({
           {targetApps.map((app) => (
             <span
               key={app}
-              className="px-2 py-1 bg-primary/10 text-primary text-xs rounded capitalize"
+              className="rounded border border-border bg-muted px-2 py-1 text-xs text-foreground capitalize"
             >
               {app.trim()}
             </span>
@@ -65,7 +65,7 @@ export function McpConfirmation({
       </div>
 
       {request.enabled && (
-        <div className="text-yellow-600 dark:text-yellow-500 text-sm flex items-center gap-2">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <span>⚠️</span>
           <span>{t("deeplink.mcp.enabledWarning")}</span>
         </div>

@@ -19,8 +19,7 @@ export function FailoverPriorityBadge({
   return (
     <div
       className={cn(
-        "inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold",
-        "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+        "inline-flex items-center rounded border border-border bg-muted px-1.5 py-0.5 text-xs font-semibold text-foreground",
         className,
       )}
       title={t("failover.priority.tooltip", {

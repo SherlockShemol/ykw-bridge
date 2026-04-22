@@ -92,11 +92,11 @@ export function ProxyTabContent({
         {/* Local Proxy */}
         <AccordionItem
           value="proxy"
-          className="rounded-xl glass-card overflow-hidden"
+          className="overflow-hidden rounded-xl border border-border bg-card shadow-sm"
         >
-          <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-muted/50 data-[state=open]:bg-muted/50">
+          <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-muted/40 data-[state=open]:bg-muted/40">
             <div className="flex items-center gap-3">
-              <Server className="h-5 w-5 text-green-500" />
+              <Server className="h-5 w-5 text-muted-foreground" />
               <div className="text-left">
                 <h3 className="text-base font-semibold">
                   {t("settings.advanced.proxy.title")}
@@ -107,7 +107,7 @@ export function ProxyTabContent({
               </div>
               <Badge
                 variant={isRunning ? "default" : "secondary"}
-                className="gap-1.5 h-6 ml-auto mr-2"
+                className="ml-auto mr-2 h-6 gap-1.5 border border-border text-xs shadow-none"
               >
                 <Activity
                   className={`h-3 w-3 ${isRunning ? "animate-pulse" : ""}`}
@@ -133,11 +133,11 @@ export function ProxyTabContent({
         {/* Auto Failover */}
         <AccordionItem
           value="failover"
-          className="rounded-xl glass-card overflow-hidden"
+          className="overflow-hidden rounded-xl border border-border bg-card shadow-sm"
         >
-          <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-muted/50 data-[state=open]:bg-muted/50">
+          <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-muted/40 data-[state=open]:bg-muted/40">
             <div className="flex items-center gap-3">
-              <Activity className="h-5 w-5 text-orange-500" />
+              <Activity className="h-5 w-5 text-muted-foreground" />
               <div className="text-left">
                 <h3 className="text-base font-semibold">
                   {t("settings.advanced.failover.title")}
@@ -151,7 +151,7 @@ export function ProxyTabContent({
           <AccordionContent className="px-6 pb-6 pt-4 border-t border-border/50">
             <div className="space-y-6">
               <ToggleRow
-                icon={<ShieldAlert className="h-4 w-4 text-orange-500" />}
+                icon={<ShieldAlert className="h-4 w-4 text-muted-foreground" />}
                 title={t("settings.advanced.proxy.enableFailoverToggle")}
                 description={t(
                   "settings.advanced.proxy.enableFailoverToggleDescription",
@@ -161,8 +161,8 @@ export function ProxyTabContent({
               />
 
               {!isRunning && (
-                <div className="p-4 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
-                  <p className="text-sm text-yellow-600 dark:text-yellow-400">
+                <div className="rounded-lg border border-border bg-muted/50 p-4">
+                  <p className="text-sm text-muted-foreground">
                     {t("proxy.failover.proxyRequired", {
                       defaultValue: "需要先启动代理服务才能配置故障转移",
                     })}
@@ -171,7 +171,7 @@ export function ProxyTabContent({
               )}
 
               <Tabs defaultValue="claude" className="w-full">
-                <TabsList className="grid w-full grid-cols-2">
+                <TabsList className="grid w-full grid-cols-2 rounded-lg border border-border bg-muted/40 p-1 shadow-none">
                   <TabsTrigger value="claude">Claude Code</TabsTrigger>
                   <TabsTrigger value="claude_desktop">
                     Claude Desktop
@@ -229,11 +229,11 @@ export function ProxyTabContent({
         {/* Rectifier */}
         <AccordionItem
           value="rectifier"
-          className="rounded-xl glass-card overflow-hidden"
+          className="overflow-hidden rounded-xl border border-border bg-card shadow-sm"
         >
-          <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-muted/50 data-[state=open]:bg-muted/50">
+          <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-muted/40 data-[state=open]:bg-muted/40">
             <div className="flex items-center gap-3">
-              <Zap className="h-5 w-5 text-purple-500" />
+              <Zap className="h-5 w-5 text-muted-foreground" />
               <div className="text-left">
                 <h3 className="text-base font-semibold">
                   {t("settings.advanced.rectifier.title")}
@@ -252,11 +252,11 @@ export function ProxyTabContent({
         {/* Global Outbound Proxy */}
         <AccordionItem
           value="globalProxy"
-          className="rounded-xl glass-card overflow-hidden"
+          className="overflow-hidden rounded-xl border border-border bg-card shadow-sm"
         >
-          <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-muted/50 data-[state=open]:bg-muted/50">
+          <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-muted/40 data-[state=open]:bg-muted/40">
             <div className="flex items-center gap-3">
-              <Globe className="h-5 w-5 text-cyan-500" />
+              <Globe className="h-5 w-5 text-muted-foreground" />
               <div className="text-left">
                 <h3 className="text-base font-semibold">
                   {t("settings.advanced.globalProxy.title")}

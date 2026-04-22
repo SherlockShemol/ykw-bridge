@@ -194,7 +194,7 @@ export function SettingsPage({
           onValueChange={setActiveTab}
           className="flex flex-col h-full"
         >
-          <TabsList className="grid w-full grid-cols-6 mb-6 glass rounded-lg">
+          <TabsList className="mb-6 grid w-full grid-cols-6 rounded-xl bg-muted/50 p-1">
             <TabsTrigger value="general">
               {t("settings.tabGeneral")}
             </TabsTrigger>
@@ -290,11 +290,11 @@ export function SettingsPage({
                     >
                       <AccordionItem
                         value="directory"
-                        className="rounded-xl glass-card overflow-hidden"
+                        className="overflow-hidden rounded-xl border border-border bg-card shadow-sm"
                       >
-                        <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-muted/50 data-[state=open]:bg-muted/50">
+                        <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-muted/40 data-[state=open]:bg-muted/40">
                           <div className="flex items-center gap-3">
-                            <FolderSearch className="h-5 w-5 text-primary" />
+                            <FolderSearch className="h-5 w-5 text-muted-foreground" />
                             <div className="text-left">
                               <h3 className="text-base font-semibold">
                                 {t("settings.advanced.configDir.title")}
@@ -322,11 +322,11 @@ export function SettingsPage({
 
                       <AccordionItem
                         value="data"
-                        className="rounded-xl glass-card overflow-hidden"
+                        className="overflow-hidden rounded-xl border border-border bg-card shadow-sm"
                       >
-                        <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-muted/50 data-[state=open]:bg-muted/50">
+                        <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-muted/40 data-[state=open]:bg-muted/40">
                           <div className="flex items-center gap-3">
-                            <Database className="h-5 w-5 text-blue-500" />
+                            <Database className="h-5 w-5 text-muted-foreground" />
                             <div className="text-left">
                               <h3 className="text-base font-semibold">
                                 {t("settings.advanced.data.title")}
@@ -354,11 +354,11 @@ export function SettingsPage({
 
                       <AccordionItem
                         value="backup"
-                        className="rounded-xl glass-card overflow-hidden"
+                        className="overflow-hidden rounded-xl border border-border bg-card shadow-sm"
                       >
-                        <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-muted/50 data-[state=open]:bg-muted/50">
+                        <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-muted/40 data-[state=open]:bg-muted/40">
                           <div className="flex items-center gap-3">
-                            <HardDriveDownload className="h-5 w-5 text-amber-500" />
+                            <HardDriveDownload className="h-5 w-5 text-muted-foreground" />
                             <div className="text-left">
                               <h3 className="text-base font-semibold">
                                 {t("settings.advanced.backup.title", {
@@ -387,11 +387,11 @@ export function SettingsPage({
 
                       <AccordionItem
                         value="cloudSync"
-                        className="rounded-xl glass-card overflow-hidden"
+                        className="overflow-hidden rounded-xl border border-border bg-card shadow-sm"
                       >
-                        <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-muted/50 data-[state=open]:bg-muted/50">
+                        <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-muted/40 data-[state=open]:bg-muted/40">
                           <div className="flex items-center gap-3">
-                            <Cloud className="h-5 w-5 text-blue-500" />
+                            <Cloud className="h-5 w-5 text-muted-foreground" />
                             <div className="text-left">
                               <h3 className="text-base font-semibold">
                                 {t("settings.advanced.cloudSync.title")}
@@ -413,11 +413,11 @@ export function SettingsPage({
 
                       <AccordionItem
                         value="test"
-                        className="rounded-xl glass-card overflow-hidden"
+                        className="overflow-hidden rounded-xl border border-border bg-card shadow-sm"
                       >
-                        <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-muted/50 data-[state=open]:bg-muted/50">
+                        <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-muted/40 data-[state=open]:bg-muted/40">
                           <div className="flex items-center gap-3">
-                            <FlaskConical className="h-5 w-5 text-emerald-500" />
+                            <FlaskConical className="h-5 w-5 text-muted-foreground" />
                             <div className="text-left">
                               <h3 className="text-base font-semibold">
                                 {t("settings.advanced.modelTest.title")}
@@ -435,11 +435,11 @@ export function SettingsPage({
 
                       <AccordionItem
                         value="logConfig"
-                        className="rounded-xl glass-card overflow-hidden"
+                        className="overflow-hidden rounded-xl border border-border bg-card shadow-sm"
                       >
-                        <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-muted/50 data-[state=open]:bg-muted/50">
+                        <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-muted/40 data-[state=open]:bg-muted/40">
                           <div className="flex items-center gap-3">
-                            <ScrollText className="h-5 w-5 text-cyan-500" />
+                            <ScrollText className="h-5 w-5 text-muted-foreground" />
                             <div className="text-left">
                               <h3 className="text-base font-semibold">
                                 {t("settings.advanced.logConfig.title")}
@@ -498,7 +498,7 @@ export function SettingsPage({
         open={showRestartPrompt}
         onOpenChange={(open) => !open && handleRestartLater()}
       >
-        <DialogContent zIndex="alert" className="max-w-md glass border-border">
+        <DialogContent zIndex="alert" className="max-w-md rounded-xl border border-border bg-background shadow-xl">
           <DialogHeader>
             <DialogTitle>{t("settings.restartRequired")}</DialogTitle>
           </DialogHeader>

@@ -36,11 +36,11 @@ export const TIER_I18N_KEYS: Record<string, string> = {
   premium: "subscription.copilotPremium",
 };
 
-/** 根据使用百分比返回颜色 class */
+/** 根据使用百分比返回克制的状态色 */
 export function utilizationColor(utilization: number): string {
-  if (utilization >= 90) return "text-red-500 dark:text-red-400";
-  if (utilization >= 70) return "text-orange-500 dark:text-orange-400";
-  return "text-green-600 dark:text-green-400";
+  if (utilization >= 90) return "text-red-600 dark:text-red-400";
+  if (utilization >= 70) return "text-amber-600 dark:text-amber-400";
+  return "text-sky-600 dark:text-sky-400";
 }
 
 /** 计算倒计时的纯时间字符串，如 "2h30m"、"3d12h" */
@@ -123,8 +123,8 @@ export const SubscriptionQuotaView: React.FC<SubscriptionQuotaViewProps> = ({
   if (quota.credentialStatus === "expired" && !quota.success) {
     if (inline) {
       return (
-        <div className="inline-flex items-center gap-2 text-xs rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 shadow-sm">
-          <div className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
+        <div className="inline-flex items-center gap-2 rounded-lg border border-border bg-muted px-3 py-2 text-xs shadow-sm">
+          <div className="flex items-center gap-1.5 text-foreground">
             <AlertCircle size={12} />
             <span>{t("subscription.expired")}</span>
           </div>
@@ -140,13 +140,13 @@ export const SubscriptionQuotaView: React.FC<SubscriptionQuotaViewProps> = ({
       );
     }
     return (
-      <div className="mt-3 rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-4 py-3 shadow-sm">
+      <div className="mt-3 rounded-xl border border-border bg-muted/50 px-4 py-3 shadow-sm">
         <div className="flex items-center justify-between gap-2 text-xs">
-          <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+          <div className="flex items-center gap-2 text-foreground">
             <AlertCircle size={14} />
             <div>
               <span className="font-medium">{t("subscription.expired")}</span>
-              <span className="ml-2 text-amber-500/70 dark:text-amber-400/70">
+              <span className="ml-2 text-muted-foreground">
                 {t("subscription.expiredHint", { tool: appIdForExpiredHint })}
               </span>
             </div>
@@ -154,7 +154,7 @@ export const SubscriptionQuotaView: React.FC<SubscriptionQuotaViewProps> = ({
           <button
             onClick={() => refetch()}
             disabled={loading}
-            className="p-1 rounded hover:bg-amber-100 dark:hover:bg-amber-800/30 transition-colors disabled:opacity-50 flex-shrink-0"
+            className="flex-shrink-0 rounded p-1 transition-colors hover:bg-background disabled:opacity-50"
             title={t("subscription.refresh")}
           >
             <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
@@ -168,8 +168,8 @@ export const SubscriptionQuotaView: React.FC<SubscriptionQuotaViewProps> = ({
   if (!quota.success) {
     if (inline) {
       return (
-        <div className="inline-flex items-center gap-2 text-xs rounded-lg border border-border-default bg-card px-3 py-2 shadow-sm">
-          <div className="flex items-center gap-1.5 text-red-500 dark:text-red-400">
+        <div className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs shadow-sm dark:border-red-900/60 dark:bg-red-950/30">
+          <div className="flex items-center gap-1.5 text-red-600 dark:text-red-400">
             <AlertCircle size={12} />
             <span>{t("subscription.queryFailed")}</span>
           </div>
@@ -185,9 +185,9 @@ export const SubscriptionQuotaView: React.FC<SubscriptionQuotaViewProps> = ({
       );
     }
     return (
-      <div className="mt-3 rounded-xl border border-border-default bg-card px-4 py-3 shadow-sm">
+      <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 shadow-sm dark:border-red-900/60 dark:bg-red-950/30">
         <div className="flex items-center justify-between gap-2 text-xs">
-          <div className="flex items-center gap-2 text-red-500 dark:text-red-400">
+          <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
             <AlertCircle size={14} />
             <span>{quota.error || t("subscription.queryFailed")}</span>
           </div>
@@ -345,14 +345,14 @@ const TierBar: React.FC<{
       </span>
 
       {/* 进度条 */}
-      <div className="flex-1 h-2 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
+      <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
         <div
           className={`h-full rounded-full transition-all ${
             tier.utilization >= 90
               ? "bg-red-500"
               : tier.utilization >= 70
-                ? "bg-orange-500"
-                : "bg-green-500"
+                ? "bg-amber-500"
+                : "bg-sky-500"
           }`}
           style={{ width: `${Math.min(tier.utilization, 100)}%` }}
         />
