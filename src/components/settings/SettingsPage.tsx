@@ -498,7 +498,10 @@ export function SettingsPage({
         open={showRestartPrompt}
         onOpenChange={(open) => !open && handleRestartLater()}
       >
-        <DialogContent zIndex="alert" className="max-w-md rounded-xl border border-border bg-background shadow-xl">
+        <DialogContent
+          zIndex="alert"
+          className="max-w-md rounded-xl border border-border bg-background shadow-xl"
+        >
           <DialogHeader>
             <DialogTitle>{t("settings.restartRequired")}</DialogTitle>
           </DialogHeader>

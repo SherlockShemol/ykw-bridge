@@ -39,7 +39,9 @@ export function SkillConfirmation({
 
       <div className="rounded-lg border border-border bg-muted/50 p-3 text-sm text-foreground">
         <p>{t("deeplink.skill.hint")}</p>
-        <p className="mt-1 text-muted-foreground">{t("deeplink.skill.hintDetail")}</p>
+        <p className="mt-1 text-muted-foreground">
+          {t("deeplink.skill.hintDetail")}
+        </p>
       </div>
     </div>
   );

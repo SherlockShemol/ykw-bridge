@@ -192,10 +192,7 @@ export function ProviderActions({
             variant="ghost"
             onClick={onOpenTerminal}
             title={t("provider.openTerminal", "打开终端")}
-            className={cn(
-              iconButtonClass,
-              "hover:text-foreground",
-            )}
+            className={cn(iconButtonClass, "hover:text-foreground")}
           >
             <Terminal className="h-4 w-4" />
           </Button>
